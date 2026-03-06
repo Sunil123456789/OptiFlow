@@ -6,6 +6,8 @@ Open-source preventive maintenance and plant operations system for manufacturing
 - Requirements Specification: `docs/OPTIFLOW_REQUIREMENTS.md`
 - System Flow Chart (SFC): `docs/OPTIFLOW_SFC.md`
 - Requirements Matrix: `docs/OPTIFLOW_REQUIREMENTS_MATRIX.csv`
+- Secrets and Env Hardening: `docs/SECRETS_AND_ENV.md`
+- Operator Runbook: `docs/OPERATOR_RUNBOOK.md`
 
 ## Problem
 Small manufacturing units often perform maintenance only after a machine fails. This leads to expensive downtime, delayed orders, and emergency repair costs.

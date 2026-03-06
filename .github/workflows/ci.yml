@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: optiflow
+          POSTGRES_USER: optiflow
+          POSTGRES_PASSWORD: optiflow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U optiflow -d optiflow"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Prepare backend env for CI
+        run: |
+          cat > backend/.env <<'EOF'
+          APP_NAME=OptiFlow API
+          APP_ENV=ci
+          APP_PORT=8000
+          CORS_ALLOW_ORIGINS=http://localhost:5173
+          DATABASE_URL=postgresql+psycopg://optiflow:optiflow@localhost:5432/optiflow
+          REDIS_URL=redis://localhost:6379/0
+          JWT_SECRET_KEY=ci-only-not-for-production
+          JWT_ALGORITHM=HS256
+          ACCESS_TOKEN_EXPIRE_MINUTES=120
+          EOF
+
+      - name: Run migrations and seed data
+        run: |
+          python -m alembic -c backend/alembic.ini upgrade head
+          psql "postgresql://optiflow:optiflow@localhost:5432/optiflow" -f db/seed.sql
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Start backend and frontend
+        run: |
+          nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir backend > backend.log 2>&1 &
+          nohup npm --prefix frontend run dev -- --host 0.0.0.0 --port 5173 > frontend.log 2>&1 &
+
+      - name: Wait for services
+        run: |
+          for i in {1..60}; do
+            if curl -sf http://localhost:8000/health >/dev/null && curl -sf http://localhost:5173 >/dev/null; then
+              echo "Services are up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Services failed to start"
+          echo "--- backend.log ---"
+          cat backend.log || true
+          echo "--- frontend.log ---"
+          cat frontend.log || true
+          exit 1
+
+      - name: API smoke checks
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+          import urllib.error
+
+          def req(url, method="GET", body=None, headers=None):
+              data = None
+              if body is not None:
+                  data = json.dumps(body).encode("utf-8")
+              request = urllib.request.Request(url, data=data, method=method)
+              request.add_header("Content-Type", "application/json")
+              if headers:
+                  for k, v in headers.items():
+                      request.add_header(k, v)
+              with urllib.request.urlopen(request, timeout=15) as response:
+                  payload = response.read().decode("utf-8")
+                  return response.status, payload
+
+          status, _ = req("http://localhost:8000/health")
+          assert status == 200
+          status, _ = req("http://localhost:8000/ready")
+          assert status == 200
+
+          status, login_payload = req(
+              "http://localhost:8000/api/v1/auth/login",
+              method="POST",
+              body={"email": "admin@optiflow.local", "password": "changeme"},
+          )
+          assert status == 200
+          token = json.loads(login_payload)["access_token"]
+          headers = {"Authorization": f"Bearer {token}"}
+
+          for path in [
+              "/api/v1/dashboard/summary",
+              "/api/v1/users",
+              "/api/v1/roles",
+              "/api/v1/departments",
+              "/api/v1/plant-mapping/integrity-checks",
+          ]:
+              status, _ = req(f"http://localhost:8000{path}", headers=headers)
+              assert status == 200, f"Expected 200 for {path}, got {status}"
+
+          print("CI smoke checks passed")
+          PY
