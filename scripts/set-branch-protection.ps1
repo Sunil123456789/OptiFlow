@@ -47,4 +47,4 @@ $payload = @{
 } | ConvertTo-Json -Depth 8
 
 Invoke-RestMethod -Method Put -Uri $uri -Headers $headers -ContentType "application/json" -Body $payload | Out-Null
-Write-Host "[PASS] Branch protection applied for $Owner/$Repo:$Branch"
+Write-Host "[PASS] Branch protection applied for ${Owner}/${Repo}:${Branch}"
