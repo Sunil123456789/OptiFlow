@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "full_name": "Admin User",
+    "email": "admin@optiflow.local",
+    "password_hash": "e10b7e9357b3e604f6892f0c9cab45bdf019d8e543168e079d5805368c7725aa",
+    "role": "admin",
+    "is_active": true
+  },
+  {
+    "id": 2,
+    "full_name": "Maintenance Lead",
+    "email": "lead@optiflow.local",
+    "password_hash": "e10b7e9357b3e604f6892f0c9cab45bdf019d8e543168e079d5805368c7725aa",
+    "role": "maintenance_manager",
+    "is_active": true
+  },
+  {
+    "id": 3,
+    "full_name": "Technician One",
+    "email": "tech1@optiflow.local",
+    "password_hash": "e10b7e9357b3e604f6892f0c9cab45bdf019d8e543168e079d5805368c7725aa",
+    "role": "technician",
+    "is_active": true
+  }
+]

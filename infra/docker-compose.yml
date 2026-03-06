@@ -1,0 +1,23 @@
+﻿version: '3.9'
+services:
+  db:
+    image: postgres:16
+    container_name: optiflow-db
+    environment:
+      POSTGRES_DB: optiflow
+      POSTGRES_USER: optiflow
+      POSTGRES_PASSWORD: optiflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: optiflow-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
+

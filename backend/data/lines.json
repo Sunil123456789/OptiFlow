@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "code": "FRM-L1",
+    "name": "Frame Line 1",
+    "department_code": "FRAME",
+    "is_active": true
+  },
+  {
+    "id": 2,
+    "code": "LNS-L1",
+    "name": "Lens Coating Line 1",
+    "department_code": "LENS",
+    "is_active": true
+  },
+  {
+    "id": 3,
+    "code": "QC-L1",
+    "name": "Final QC Line",
+    "department_code": "QC",
+    "is_active": true
+  }
+]

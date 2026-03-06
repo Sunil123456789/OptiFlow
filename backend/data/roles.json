@@ -1,0 +1,50 @@
+[
+  {
+    "name": "admin",
+    "is_system": true,
+    "permissions": {
+      "can_manage_users": true,
+      "can_manage_assets": true,
+      "can_create_work_orders": true,
+      "can_update_work_orders": true,
+      "can_import_master_data": true
+    },
+    "is_active": true
+  },
+  {
+    "name": "maintenance_manager",
+    "is_system": true,
+    "permissions": {
+      "can_manage_users": false,
+      "can_manage_assets": true,
+      "can_create_work_orders": true,
+      "can_update_work_orders": true,
+      "can_import_master_data": true
+    },
+    "is_active": true
+  },
+  {
+    "name": "technician",
+    "is_system": true,
+    "permissions": {
+      "can_manage_users": false,
+      "can_manage_assets": false,
+      "can_create_work_orders": false,
+      "can_update_work_orders": true,
+      "can_import_master_data": false
+    },
+    "is_active": true
+  },
+  {
+    "name": "viewer",
+    "is_system": true,
+    "permissions": {
+      "can_manage_users": false,
+      "can_manage_assets": false,
+      "can_create_work_orders": false,
+      "can_update_work_orders": false,
+      "can_import_master_data": false
+    },
+    "is_active": true
+  }
+]

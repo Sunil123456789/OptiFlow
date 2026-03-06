@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "code": "ST-FRM-01",
+    "name": "Frame Press Station",
+    "line_code": "FRM-L1",
+    "is_active": true
+  },
+  {
+    "id": 2,
+    "code": "ST-LNS-01",
+    "name": "Lens Coating Station",
+    "line_code": "LNS-L1",
+    "is_active": true
+  },
+  {
+    "id": 3,
+    "code": "ST-QC-01",
+    "name": "Final Inspection Station",
+    "line_code": "QC-L1",
+    "is_active": true
+  }
+]

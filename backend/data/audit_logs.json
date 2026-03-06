@@ -1,0 +1,211 @@
+[
+  {
+    "id": 1,
+    "event_at": "2026-03-06T14:28:03.565629+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "machine",
+    "entity_id": "4",
+    "action": "delete",
+    "summary": "Deleted machine id 4"
+  },
+  {
+    "id": 2,
+    "event_at": "2026-03-06T14:34:24.360890+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "machine",
+    "entity_id": "3",
+    "action": "delete",
+    "summary": "Deleted machine id 3"
+  },
+  {
+    "id": 3,
+    "event_at": "2026-03-06T14:34:26.232650+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "machine",
+    "entity_id": "1",
+    "action": "delete",
+    "summary": "Deleted machine id 1"
+  },
+  {
+    "id": 4,
+    "event_at": "2026-03-06T14:34:28.362301+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "machine",
+    "entity_id": "2",
+    "action": "delete",
+    "summary": "Deleted machine id 2"
+  },
+  {
+    "id": 5,
+    "event_at": "2026-03-06T14:34:33.247304+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "plan",
+    "entity_id": "1",
+    "action": "delete",
+    "summary": "Deleted plan id 1"
+  },
+  {
+    "id": 6,
+    "event_at": "2026-03-06T14:34:35.298418+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "plan",
+    "entity_id": "2",
+    "action": "delete",
+    "summary": "Deleted plan id 2"
+  },
+  {
+    "id": 7,
+    "event_at": "2026-03-06T14:34:37.426062+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "plan",
+    "entity_id": "3",
+    "action": "delete",
+    "summary": "Deleted plan id 3"
+  },
+  {
+    "id": 8,
+    "event_at": "2026-03-06T14:34:41.443800+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "work_order",
+    "entity_id": "1",
+    "action": "delete",
+    "summary": "Deleted work order id 1"
+  },
+  {
+    "id": 9,
+    "event_at": "2026-03-06T14:34:43.562648+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "work_order",
+    "entity_id": "2",
+    "action": "delete",
+    "summary": "Deleted work order id 2"
+  },
+  {
+    "id": 10,
+    "event_at": "2026-03-06T14:34:45.381953+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "work_order",
+    "entity_id": "3",
+    "action": "delete",
+    "summary": "Deleted work order id 3"
+  },
+  {
+    "id": 11,
+    "event_at": "2026-03-06T15:20:14.261705+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "master_import",
+    "entity_id": "imp-1772810414259",
+    "action": "create",
+    "summary": "Master import dry-run: dept +1/0 upd, line +1/0 upd, station +1/0 upd, skipped 0"
+  },
+  {
+    "id": 12,
+    "event_at": "2026-03-06T15:20:14.276816+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "master_import",
+    "entity_id": "imp-1772810414272",
+    "action": "create",
+    "summary": "Master import completed: dept +1/0 upd, line +1/0 upd, station +1/0 upd, skipped 0"
+  },
+  {
+    "id": 13,
+    "event_at": "2026-03-06T15:20:14.317897+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "master_import",
+    "entity_id": "imp-1772810414272",
+    "action": "delete",
+    "summary": "Rolled back import batch imp-1772810414272"
+  },
+  {
+    "id": 14,
+    "event_at": "2026-03-06T15:21:13.656735+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "master_import",
+    "entity_id": "imp-1772810473655",
+    "action": "create",
+    "summary": "Master import dry-run: dept +1/0 upd, line +1/0 upd, station +1/0 upd, skipped 0"
+  },
+  {
+    "id": 15,
+    "event_at": "2026-03-06T15:21:13.673383+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "master_import",
+    "entity_id": "imp-1772810473668",
+    "action": "create",
+    "summary": "Master import completed: dept +1/0 upd, line +1/0 upd, station +1/0 upd, skipped 0"
+  },
+  {
+    "id": 16,
+    "event_at": "2026-03-06T15:21:13.713766+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "master_import",
+    "entity_id": "imp-1772810473668",
+    "action": "delete",
+    "summary": "Rolled back import batch imp-1772810473668"
+  },
+  {
+    "id": 17,
+    "event_at": "2026-03-06T15:26:25.037816+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "master_import",
+    "entity_id": "imp-1772810785034",
+    "action": "create",
+    "summary": "Master import dry-run: dept +1/0 upd, line +1/0 upd, station +1/0 upd, skipped 0"
+  },
+  {
+    "id": 18,
+    "event_at": "2026-03-06T15:26:25.061274+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "master_import",
+    "entity_id": "imp-1772810785057",
+    "action": "create",
+    "summary": "Master import completed: dept +1/0 upd, line +1/0 upd, station +1/0 upd, skipped 0"
+  },
+  {
+    "id": 19,
+    "event_at": "2026-03-06T15:26:25.097095+00:00",
+    "actor_user_id": 1,
+    "actor_email": "admin@optiflow.local",
+    "actor_role": "admin",
+    "entity_type": "master_import",
+    "entity_id": "imp-1772810785057",
+    "action": "delete",
+    "summary": "Rolled back import batch imp-1772810785057"
+  }
+]

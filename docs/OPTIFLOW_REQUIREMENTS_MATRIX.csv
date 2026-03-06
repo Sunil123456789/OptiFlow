@@ -1,0 +1,15 @@
+RequirementID,Category,Requirement,Priority,Module,AcceptanceCheck
+FR-001,Auth,JWT login and session validation,High,Auth,Login returns token and /auth/me succeeds
+FR-002,UserMgmt,Admin can CRUD and enable/disable users,High,Users,Admin can toggle user active status
+FR-003,RoleMgmt,Admin can CRUD and enable/disable custom roles,High,Roles,Admin can toggle role active status
+FR-004,Security,Capability-based API authorization,High,Backend Guard,Restricted user gets 403 on protected write
+FR-005,Assets,Machine registry CRUD,High,Machines,Machine create/update/delete works via API and UI
+FR-006,Planning,Maintenance plan CRUD,High,Plans,Plan create/update/delete works via API and UI
+FR-007,Execution,Work order CRUD and lifecycle statuses,High,WorkOrders,Work order status changes and persists
+FR-008,Scalability,Server-side pagination/search/filter/sort,High,List APIs,List endpoints return paginated filtered results
+FR-009,Reporting,Export full filtered datasets,High,Exports,Export includes all matching rows not just current page
+FR-010,Observability,Health and readiness checks,Medium,Ops,/health and /ready respond correctly
+NFR-001,Performance,List response under 500ms for up to 10k rows,Medium,Backend,Load test benchmark report
+NFR-002,Reliability,Container healthchecks and restart policy,Medium,Deployment,Services recover on transient failure
+NFR-003,Security,CORS and secrets via environment,High,Config,Production env file controls CORS and JWT secret
+NFR-004,Audit,Request logging with latency,Medium,Middleware,Logs show method path status latency

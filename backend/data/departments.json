@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "code": "FRAME",
+    "name": "Frame Manufacturing",
+    "is_active": true
+  },
+  {
+    "id": 2,
+    "code": "LENS",
+    "name": "Lens Processing",
+    "is_active": true
+  },
+  {
+    "id": 3,
+    "code": "QC",
+    "name": "Quality Control",
+    "is_active": true
+  }
+]
