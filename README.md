@@ -150,6 +150,12 @@ Verify complete Phase-2 master import flow (dry-run + apply + history + rollback
 .\verify-master-import-workflow.ps1
 ```
 
+Verify production-style smoke checks (health/ready/login/import-history/integrity):
+
+```powershell
+.\verify-prod-smoke.ps1
+```
+
 Stop everything:
 
 ```powershell
@@ -205,6 +211,15 @@ Restore from a backup ZIP:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\restore-data.ps1 -BackupZip .\backups\optiflow_data_backup_YYYYMMDD_HHMMSS.zip
 ```
+
+## Branch Protection Automation
+Apply recommended branch protection for `main` using GitHub API:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\set-branch-protection.ps1 -Owner Sunil123456789 -Repo OptiFlow -Branch main -GithubToken <your_token>
+```
+
+Required token scope: `repo` (classic PAT) or equivalent repository administration permission.
 
 ## Definition of MVP Success
 - Team can register machines and create PM plans.

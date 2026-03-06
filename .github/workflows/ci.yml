@@ -74,10 +74,15 @@ jobs:
           ACCESS_TOKEN_EXPIRE_MINUTES=120
           EOF
 
-      - name: Run migrations and seed data
+      - name: Run migrations
+        working-directory: backend
         run: |
-          python -m alembic -c backend/alembic.ini upgrade head
-          psql "postgresql://optiflow:optiflow@localhost:5432/optiflow" -f db/seed.sql
+          python -m alembic upgrade head
+
+      - name: Seed database
+        working-directory: db
+        run: |
+          psql "postgresql://optiflow:optiflow@localhost:5432/optiflow" -f seed.sql
 
       - name: Install frontend dependencies
         working-directory: frontend
