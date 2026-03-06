@@ -1,6 +1,7 @@
 ﻿from datetime import datetime, timedelta, timezone
 import csv
 import logging
+from logging.handlers import RotatingFileHandler
 from math import ceil
 from io import StringIO
 from typing import Literal
@@ -17,6 +18,7 @@ from app.config import settings
 from app.audit_store import AuditStore
 from app.database import db_healthcheck
 from app.departments_store import DepartmentsStore
+from app.failure_logs_store import FailureLogsStore
 from app.lines_store import LinesStore
 from app.machines_store import MachinesStore
 from app.plans_store import PlansStore
@@ -37,10 +39,14 @@ departments_store = DepartmentsStore()
 lines_store = LinesStore()
 stations_store = StationsStore()
 import_history_store = ImportHistoryStore()
+failure_logs_store = FailureLogsStore()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 logger = logging.getLogger("optiflow.api")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
+    file_handler = RotatingFileHandler("optiflow-api.log", maxBytes=1_000_000, backupCount=5, encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    logger.addHandler(file_handler)
 
 
 class MachineBase(BaseModel):
@@ -86,6 +92,39 @@ class WorkOrderUpdate(BaseModel):
 class WorkOrder(WorkOrderBase):
     id: int
     machine_name: str
+    created_at: str | None = None
+    source_plan_id: int | None = None
+
+
+class FailureLogBase(BaseModel):
+    machine_id: int = Field(gt=0)
+    occurred_at: str = Field(min_length=10, max_length=40)
+    downtime_hours: float = Field(gt=0)
+    repair_cost: float = Field(ge=0)
+    root_cause: str = Field(min_length=3, max_length=200)
+    notes: str = Field(default="", max_length=500)
+
+
+class FailureLogCreate(FailureLogBase):
+    pass
+
+
+class FailureLog(FailureLogBase):
+    id: int
+    machine_name: str
+
+
+class KpiTrendPoint(BaseModel):
+    day: str
+    failures: int
+    downtime_hours: float
+    repair_cost: float
+
+
+class AutoGenerateWorkOrdersResult(BaseModel):
+    generated: int
+    skipped_existing: int
+    scanned_plans: int
 
 
 class PlanBase(BaseModel):
@@ -662,17 +701,59 @@ def readiness_check() -> dict[str, object]:
 @app.get("/api/v1/dashboard/summary")
 def dashboard_summary(current_user: dict[str, object] = Depends(get_current_user)) -> dict[str, object]:
     work_orders = work_orders_store.list()
+    failures = failure_logs_store.list()
     open_count = len([w for w in work_orders if w["status"] == "open"])
     overdue_count = len([w for w in work_orders if w["status"] == "overdue"])
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    recent_failures = [f for f in failures if _safe_parse_datetime(str(f.get("occurred_at", ""))) >= cutoff]
+    downtime_hours = round(sum(float(f.get("downtime_hours", 0)) for f in recent_failures), 2)
+    repair_cost = round(sum(float(f.get("repair_cost", 0)) for f in recent_failures), 2)
 
     return {
         "total_machines": len(machines_store.list()),
         "open_work_orders": open_count,
         "overdue_work_orders": overdue_count,
-        "downtime_hours_30d": 142.5,
-        "repair_cost_30d": 85300,
-        "failure_count_30d": 21,
+        "downtime_hours_30d": downtime_hours,
+        "repair_cost_30d": repair_cost,
+        "failure_count_30d": len(recent_failures),
     }
+
+
+@app.get("/api/v1/dashboard/kpi-trends", response_model=list[KpiTrendPoint])
+def dashboard_kpi_trends(
+    current_user: dict[str, object] = Depends(get_current_user),
+    days: int = Query(default=14, ge=7, le=90),
+) -> list[KpiTrendPoint]:
+    failures = failure_logs_store.list()
+    today = datetime.now(timezone.utc).date()
+    start_day = today - timedelta(days=days - 1)
+    buckets: dict[str, dict[str, float | int]] = {}
+
+    for i in range(days):
+        day = start_day + timedelta(days=i)
+        key = day.isoformat()
+        buckets[key] = {"failures": 0, "downtime_hours": 0.0, "repair_cost": 0.0}
+
+    for item in failures:
+        event_at = _safe_parse_datetime(str(item.get("occurred_at", "")))
+        key = event_at.date().isoformat()
+        if key not in buckets:
+            continue
+
+        buckets[key]["failures"] = int(buckets[key]["failures"]) + 1
+        buckets[key]["downtime_hours"] = float(buckets[key]["downtime_hours"]) + float(item.get("downtime_hours", 0))
+        buckets[key]["repair_cost"] = float(buckets[key]["repair_cost"]) + float(item.get("repair_cost", 0))
+
+    return [
+        KpiTrendPoint(
+            day=day,
+            failures=int(values["failures"]),
+            downtime_hours=round(float(values["downtime_hours"]), 2),
+            repair_cost=round(float(values["repair_cost"]), 2),
+        )
+        for day, values in sorted(buckets.items(), key=lambda row: row[0])
+    ]
 
 
 @app.get("/api/v1/audit-logs", response_model=AuditListResponse)
@@ -681,7 +762,7 @@ def list_audit_logs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=100),
     q: str = Query(default=""),
-    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import"] = Query(default="all"),
+    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log"] = Query(default="all"),
     action_filter: Literal["all", "create", "update", "delete"] = Query(default="all"),
     start_date: str = Query(default=""),
     end_date: str = Query(default=""),
@@ -699,7 +780,7 @@ def list_audit_logs(
 def export_audit_logs(
     current_user: dict[str, object] = Depends(require_permission("can_manage_users")),
     q: str = Query(default=""),
-    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import"] = Query(default="all"),
+    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log"] = Query(default="all"),
     action_filter: Literal["all", "create", "update", "delete"] = Query(default="all"),
     start_date: str = Query(default=""),
     end_date: str = Query(default=""),
@@ -953,6 +1034,46 @@ def _work_order_with_machine_name(work_order: dict[str, object]) -> WorkOrder:
     return WorkOrder(**work_order, machine_name=machine_name)
 
 
+def _failure_log_with_machine_name(failure_log: dict[str, object]) -> FailureLog:
+    machine = machines_store.get(int(failure_log["machine_id"]))
+    machine_name = machine["name"] if machine else "Unknown Machine"
+    return FailureLog(**failure_log, machine_name=machine_name)
+
+
+def _safe_parse_datetime(raw: str) -> datetime:
+    normalized = raw.strip()
+    if not normalized:
+        return datetime.now(timezone.utc)
+    try:
+        return _parse_iso_datetime(normalized)
+    except ValueError:
+        return datetime.now(timezone.utc)
+
+
+def _plan_due_soon(next_due: str) -> bool:
+    normalized = next_due.strip().lower()
+    if not normalized:
+        return False
+    if "today" in normalized or "tomorrow" in normalized or "overdue" in normalized:
+        return True
+    if normalized.startswith("in ") and "day" in normalized:
+        digits = "".join(ch for ch in normalized if ch.isdigit())
+        if digits:
+            return int(digits) <= 1
+    return False
+
+
+def _next_auto_work_order_code() -> str:
+    base = datetime.now(timezone.utc).strftime("AUTO-%Y%m%d")
+    existing_codes = {str(row.get("work_order_code", "")).upper() for row in work_orders_store.list()}
+    index = 1
+    while True:
+        candidate = f"{base}-{index:03d}"
+        if candidate.upper() not in existing_codes:
+            return candidate
+        index += 1
+
+
 def _plan_with_machine_name(plan: dict[str, object]) -> Plan:
     machine = machines_store.get(int(plan["machine_id"]))
     machine_name = machine["name"] if machine else "Unknown Machine"
@@ -997,7 +1118,7 @@ def write_audit_event(
 
 def _filter_sort_audit_events(
     q: str,
-    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import"],
+    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log"],
     action_filter: Literal["all", "create", "update", "delete"],
     start_at: datetime | None,
     end_at: datetime | None,
@@ -1607,7 +1728,7 @@ def create_work_order(
     if machine is None:
         raise HTTPException(status_code=400, detail="Machine does not exist")
 
-    work_order = work_orders_store.create(payload.model_dump())
+    work_order = work_orders_store.create({**payload.model_dump(), "created_at": datetime.now(timezone.utc).isoformat()})
     write_audit_event(
         current_user,
         "work_order",
@@ -1670,5 +1791,107 @@ def delete_work_order(
     if not deleted:
         raise HTTPException(status_code=404, detail="Work order not found")
     write_audit_event(current_user, "work_order", str(work_order_id), "delete", f"Deleted work order id {work_order_id}")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post("/api/v1/work-orders/auto-generate", response_model=AutoGenerateWorkOrdersResult)
+def auto_generate_work_orders(
+    current_user: dict[str, object] = Depends(require_permission("can_create_work_orders")),
+) -> AutoGenerateWorkOrdersResult:
+    plans = [plan for plan in plans_store.list() if bool(plan.get("is_active", True))]
+    work_orders = work_orders_store.list()
+    generated = 0
+    skipped_existing = 0
+
+    for plan in plans:
+        if not _plan_due_soon(str(plan.get("next_due", ""))):
+            continue
+
+        machine_id = int(plan.get("machine_id", 0))
+        if machine_id <= 0:
+            continue
+
+        already_open = any(
+            int(w.get("machine_id", 0)) == machine_id
+            and str(w.get("status", "")) in {"open", "in_progress", "overdue"}
+            and int(w.get("source_plan_id", 0)) == int(plan.get("id", 0))
+            for w in work_orders
+        )
+        if already_open:
+            skipped_existing += 1
+            continue
+
+        code = _next_auto_work_order_code()
+        created = work_orders_store.create(
+            {
+                "work_order_code": code,
+                "machine_id": machine_id,
+                "status": "open",
+                "priority": "medium",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "source_plan_id": int(plan.get("id", 0)),
+            }
+        )
+        work_orders.append(created)
+        generated += 1
+
+    write_audit_event(
+        current_user,
+        "work_order",
+        "auto-generator",
+        "create",
+        f"Auto-generated {generated} work order(s), skipped {skipped_existing} due to existing open work orders",
+    )
+    return AutoGenerateWorkOrdersResult(generated=generated, skipped_existing=skipped_existing, scanned_plans=len(plans))
+
+
+@app.get("/api/v1/failure-logs", response_model=list[FailureLog])
+def list_failure_logs(current_user: dict[str, object] = Depends(get_current_user)) -> list[FailureLog]:
+    rows = failure_logs_store.list()
+    rows.sort(key=lambda row: _safe_parse_datetime(str(row.get("occurred_at", ""))), reverse=True)
+    return [_failure_log_with_machine_name(row) for row in rows]
+
+
+@app.post("/api/v1/failure-logs", response_model=FailureLog, status_code=status.HTTP_201_CREATED)
+def create_failure_log(
+    payload: FailureLogCreate,
+    current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
+) -> FailureLog:
+    machine = machines_store.get(payload.machine_id)
+    if machine is None:
+        raise HTTPException(status_code=400, detail="Machine does not exist")
+
+    # Normalize timezone-less values to UTC for consistent trend math.
+    occurred_at = _safe_parse_datetime(payload.occurred_at).isoformat()
+    created = failure_logs_store.create(
+        {
+            "machine_id": payload.machine_id,
+            "occurred_at": occurred_at,
+            "downtime_hours": payload.downtime_hours,
+            "repair_cost": payload.repair_cost,
+            "root_cause": payload.root_cause,
+            "notes": payload.notes,
+        }
+    )
+    write_audit_event(
+        current_user,
+        "failure_log",
+        str(created["id"]),
+        "create",
+        f"Created failure log for machine '{machine['machine_code']}'",
+    )
+    return _failure_log_with_machine_name(created)
+
+
+@app.delete("/api/v1/failure-logs/{failure_log_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_failure_log(
+    failure_log_id: int,
+    current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
+) -> Response:
+    deleted = failure_logs_store.delete(failure_log_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Failure log not found")
+
+    write_audit_event(current_user, "failure_log", str(failure_log_id), "delete", f"Deleted failure log id {failure_log_id}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

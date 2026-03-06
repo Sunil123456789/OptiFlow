@@ -47,6 +47,7 @@ try {
 
 if ($authHeaders.Count -gt 0) {
     if (-not (Test-Endpoint -Name "Users List" -Url "$ApiBaseUrl/api/v1/users" -Headers $authHeaders)) { $allPass = $false }
+    if (-not (Test-Endpoint -Name "Failure Logs" -Url "$ApiBaseUrl/api/v1/failure-logs" -Headers $authHeaders)) { $allPass = $false }
     if (-not (Test-Endpoint -Name "Import History" -Url "$ApiBaseUrl/api/v1/master-data/import-history" -Headers $authHeaders)) { $allPass = $false }
     if (-not (Test-Endpoint -Name "Integrity Checks" -Url "$ApiBaseUrl/api/v1/plant-mapping/integrity-checks" -Headers $authHeaders)) { $allPass = $false }
 }

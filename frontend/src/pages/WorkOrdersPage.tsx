@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { Modal } from "../components/Modal";
 import {
+  autoGenerateWorkOrders,
   createWorkOrder,
   deleteWorkOrder,
   exportWorkOrders,
@@ -39,6 +40,7 @@ export function WorkOrdersPage({ currentUser }: WorkOrdersPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [workOrderCode, setWorkOrderCode] = useState("");
   const [machineId, setMachineId] = useState<number>(1);
@@ -114,6 +116,25 @@ export function WorkOrdersPage({ currentUser }: WorkOrdersPageProps) {
       }
     } finally {
       setIsCreating(false);
+    }
+  }
+
+  async function handleAutoGenerateWorkOrders() {
+    try {
+      setIsAutoGenerating(true);
+      const result = await autoGenerateWorkOrders();
+      setError(
+        `Auto-generated ${result.generated} work order(s), skipped ${result.skipped_existing}, scanned ${result.scanned_plans} active plans.`
+      );
+      await loadWorkOrders(page);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Failed to auto-generate work orders.");
+      }
+    } finally {
+      setIsAutoGenerating(false);
     }
   }
 
@@ -235,6 +256,14 @@ export function WorkOrdersPage({ currentUser }: WorkOrdersPageProps) {
         </button>
         <button className="tab" type="button" onClick={handleExportPdf}>
           Export PDF
+        </button>
+        <button
+          className="tab"
+          type="button"
+          onClick={handleAutoGenerateWorkOrders}
+          disabled={!canCreateWorkOrders(currentUser) || isAutoGenerating}
+        >
+          {isAutoGenerating ? "Generating..." : "Auto-Generate From Due Plans"}
         </button>
         {!canCreateWorkOrders(currentUser) && (
           <p className="state-note">Only admin or maintenance manager can create work orders.</p>

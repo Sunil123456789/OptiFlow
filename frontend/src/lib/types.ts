@@ -7,6 +7,13 @@ export type DashboardSummary = {
   failure_count_30d: number;
 };
 
+export type KpiTrendPoint = {
+  day: string;
+  failures: number;
+  downtime_hours: number;
+  repair_cost: number;
+};
+
 export type RolePermissions = {
   can_manage_users: boolean;
   can_manage_assets: boolean;
@@ -53,8 +60,27 @@ export type WorkOrder = {
   work_order_code: string;
   machine_id: number;
   machine_name: string;
+  source_plan_id?: number | null;
+  created_at?: string | null;
   status: "open" | "in_progress" | "done" | "overdue" | "cancelled";
   priority: "low" | "medium" | "high" | "critical";
+};
+
+export type FailureLog = {
+  id: number;
+  machine_id: number;
+  machine_name: string;
+  occurred_at: string;
+  downtime_hours: number;
+  repair_cost: number;
+  root_cause: string;
+  notes: string;
+};
+
+export type AutoGenerateWorkOrdersResult = {
+  generated: number;
+  skipped_existing: number;
+  scanned_plans: number;
 };
 
 export type MaintenancePlan = {
@@ -95,7 +121,8 @@ export type AuditLog = {
     | "department"
     | "line"
     | "station"
-    | "master_import";
+    | "master_import"
+    | "failure_log";
   entity_id: string;
   action: "create" | "update" | "delete";
   summary: string;

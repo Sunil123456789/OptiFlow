@@ -7,6 +7,7 @@ import { AuditLogsPage } from "./pages/AuditLogsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MachinesPage } from "./pages/MachinesPage";
 import { OverviewPage } from "./pages/OverviewPage";
+import { FailureLogsPage } from "./pages/FailureLogsPage";
 import { PlantMapPage } from "./pages/PlantMapPage";
 import { PlansPage } from "./pages/PlansPage";
 import { UsersPage } from "./pages/UsersPage";
@@ -125,6 +126,9 @@ export function App() {
     }
     if (activeTab === "Work Orders") {
       return <WorkOrdersPage currentUser={currentUser} />;
+    }
+    if (activeTab === "Failure Logs") {
+      return <FailureLogsPage currentUser={currentUser} />;
     }
     if (activeTab === "Plant Map") {
       return <PlantMapPage currentUser={currentUser} />;

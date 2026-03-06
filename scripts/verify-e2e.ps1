@@ -47,6 +47,7 @@ try {
         $checks += @{ name = "Roles List (Admin)"; url = "http://localhost:8000/api/v1/roles"; headers = $authHeaders }
         $checks += @{ name = "Audit Logs (Admin)"; url = "http://localhost:8000/api/v1/audit-logs?page=1&page_size=5&sort_by=event_at&sort_dir=desc"; headers = $authHeaders }
         $checks += @{ name = "Departments (Plant Map)"; url = "http://localhost:8000/api/v1/departments"; headers = $authHeaders }
+        $checks += @{ name = "Failure Logs"; url = "http://localhost:8000/api/v1/failure-logs"; headers = $authHeaders }
         $checks += @{ name = "Filtered Machines List"; url = "http://localhost:8000/api/v1/machines?page=1&page_size=5&q=cnc&sort_by=name&sort_dir=asc"; headers = $authHeaders }
         $checks += @{ name = "Machines Export"; url = "http://localhost:8000/api/v1/machines/export?q=cnc&sort_by=name&sort_dir=asc"; headers = $authHeaders }
     }

@@ -1,6 +1,8 @@
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useEffect, useState } from "react";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { MetricCard } from "../components/MetricCard";
-import type { DashboardSummary, MetricCardData } from "../lib/types";
+import { fetchKpiTrends } from "../lib/api";
+import type { DashboardSummary, KpiTrendPoint, MetricCardData } from "../lib/types";
 
 type OverviewPageProps = {
   summary: DashboardSummary | null;
@@ -18,7 +20,27 @@ const fallbackSummary: DashboardSummary = {
 };
 
 export function OverviewPage({ summary, isLoading, error }: OverviewPageProps) {
+  const [trends, setTrends] = useState<KpiTrendPoint[]>([]);
   const safeSummary = summary ?? fallbackSummary;
+
+  useEffect(() => {
+    let mounted = true;
+    fetchKpiTrends(14)
+      .then((rows) => {
+        if (mounted) {
+          setTrends(rows);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setTrends([]);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const cards: MetricCardData[] = [
     {
@@ -92,6 +114,28 @@ export function OverviewPage({ summary, isLoading, error }: OverviewPageProps) {
               />
               <Bar dataKey="value" fill="#f2a93b" radius={[8, 8, 0, 0]} />
             </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </article>
+
+      <article className="chart-card">
+        <h3>14-Day Failure Trend</h3>
+        <div className="chart-wrap">
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={trends} margin={{ top: 12, right: 12, left: 0, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.12)" />
+              <XAxis dataKey="day" stroke="#c6d2cf" tickFormatter={(value) => value.slice(5)} />
+              <YAxis stroke="#c6d2cf" />
+              <Tooltip
+                contentStyle={{
+                  background: "#0f1a1a",
+                  border: "1px solid #2e5f5d",
+                  borderRadius: "10px",
+                }}
+              />
+              <Line type="monotone" dataKey="failures" stroke="#f2a93b" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="downtime_hours" stroke="#9fd3ca" strokeWidth={2} dot={false} />
+            </LineChart>
           </ResponsiveContainer>
         </div>
       </article>

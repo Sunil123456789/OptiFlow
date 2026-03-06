@@ -1,9 +1,12 @@
 ﻿import type {
+  AutoGenerateWorkOrdersResult,
   AuditLog,
   AuthUser,
   DashboardSummary,
   Department,
+  FailureLog,
   RollbackResult,
+  KpiTrendPoint,
   Line,
   Machine,
   ImportHistoryItem,
@@ -50,7 +53,7 @@ type WorkOrderListOptions = {
 
 type AuditLogListOptions = {
   q?: string;
-  entityType?: "all" | "user" | "role" | "machine" | "plan" | "work_order" | "department" | "line" | "station" | "master_import";
+  entityType?: "all" | "user" | "role" | "machine" | "plan" | "work_order" | "department" | "line" | "station" | "master_import" | "failure_log";
   actionFilter?: "all" | "create" | "update" | "delete";
   startDate?: string;
   endDate?: string;
@@ -268,6 +271,11 @@ export async function fetchDashboardSummary(): Promise<DashboardSummary> {
   return fetchAuthed<DashboardSummary>("/dashboard/summary");
 }
 
+export async function fetchKpiTrends(days = 14): Promise<KpiTrendPoint[]> {
+  const params = new URLSearchParams({ days: String(days) });
+  return fetchAuthed<KpiTrendPoint[]>(`/dashboard/kpi-trends?${params.toString()}`);
+}
+
 export async function fetchAuditLogsWithOptions(
   page = 1,
   pageSize = 10,
@@ -467,6 +475,29 @@ export async function updateWorkOrder(
 
 export async function deleteWorkOrder(workOrderId: number): Promise<void> {
   return deleteAuthed(`/work-orders/${workOrderId}`);
+}
+
+export async function autoGenerateWorkOrders(): Promise<AutoGenerateWorkOrdersResult> {
+  return postAuthed<AutoGenerateWorkOrdersResult, Record<string, never>>("/work-orders/auto-generate", {});
+}
+
+export async function fetchFailureLogs(): Promise<FailureLog[]> {
+  return fetchAuthed<FailureLog[]>("/failure-logs");
+}
+
+export async function createFailureLog(payload: {
+  machine_id: number;
+  occurred_at: string;
+  downtime_hours: number;
+  repair_cost: number;
+  root_cause: string;
+  notes?: string;
+}): Promise<FailureLog> {
+  return postAuthed<FailureLog, typeof payload>("/failure-logs", payload);
+}
+
+export async function deleteFailureLog(failureLogId: number): Promise<void> {
+  return deleteAuthed(`/failure-logs/${failureLogId}`);
 }
 
 export async function fetchDepartments(): Promise<Department[]> {
