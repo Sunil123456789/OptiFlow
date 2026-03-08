@@ -1908,7 +1908,13 @@ def create_failure_log(
         raise HTTPException(status_code=400, detail="Machine does not exist")
 
     # Normalize timezone-less values to UTC for consistent trend math.
-    occurred_at = _safe_parse_datetime(payload.occurred_at).isoformat()
+    try:
+        occurred_at_dt = datetime.fromisoformat(payload.occurred_at)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid occurred_at timestamp format")
+    if occurred_at_dt.tzinfo is None:
+        occurred_at_dt = occurred_at_dt.replace(tzinfo=timezone.utc)
+    occurred_at = occurred_at_dt.isoformat()
     created = failure_logs_store.create(
         {
             "machine_id": payload.machine_id,
