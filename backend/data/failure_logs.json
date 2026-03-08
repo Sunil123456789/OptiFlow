@@ -1,0 +1,29 @@
+[
+  {
+    "id": 1,
+    "machine_id": 1,
+    "occurred_at": "2026-02-10T08:20:00Z",
+    "downtime_hours": 2.5,
+    "repair_cost": 14500,
+    "root_cause": "Spindle vibration",
+    "notes": "Bearing replaced and alignment corrected."
+  },
+  {
+    "id": 2,
+    "machine_id": 2,
+    "occurred_at": "2026-02-18T13:45:00Z",
+    "downtime_hours": 1.25,
+    "repair_cost": 6200,
+    "root_cause": "Sensor misread",
+    "notes": "I/O card reseated and recalibrated."
+  },
+  {
+    "id": 3,
+    "machine_id": 3,
+    "occurred_at": "2026-02-25T19:05:00Z",
+    "downtime_hours": 3.0,
+    "repair_cost": 23100,
+    "root_cause": "Compressor seal leak",
+    "notes": "Seal kit changed and pressure tested."
+  }
+]

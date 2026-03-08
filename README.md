@@ -129,6 +129,12 @@ npm run dev
   - Create, edit, delete
   - Search, filter by status/priority, sort (server-side)
   - Export CSV and PDF for all matching records (not only current page)
+  - Auto-generate from due active maintenance plans
+- Failure Logs:
+  - Create, list, delete machine failure events
+  - Track downtime hours, repair cost, and root-cause notes
+- Dashboard Trends:
+  - 14-day KPI trend line for failures and downtime
 
 ## End-to-End Local Run (Step 3)
 From project root:

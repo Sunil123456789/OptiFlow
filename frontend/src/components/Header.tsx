@@ -14,6 +14,7 @@ export function Header({ activeTab, onTabChange, currentUser, onLogout }: Header
     "Machines",
     "Plans",
     "Work Orders",
+    "Failure Logs",
     ...(canManageAssets(currentUser) ? ["Plant Map"] : []),
     ...(canManageUsers(currentUser) ? ["Users", "Audit Logs"] : []),
   ];
