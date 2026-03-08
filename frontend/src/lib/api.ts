@@ -23,6 +23,7 @@
   Station,
   UserRecord,
   WorkOrder,
+  WorkOrderPartConsumption,
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
@@ -564,6 +565,25 @@ export async function deleteWorkOrder(workOrderId: number): Promise<void> {
 
 export async function autoGenerateWorkOrders(): Promise<AutoGenerateWorkOrdersResult> {
   return postAuthed<AutoGenerateWorkOrdersResult, Record<string, never>>("/work-orders/auto-generate", {});
+}
+
+export async function fetchWorkOrderPartConsumptions(workOrderId: number): Promise<WorkOrderPartConsumption[]> {
+  return fetchAuthed<WorkOrderPartConsumption[]>(`/work-orders/${workOrderId}/parts`);
+}
+
+export async function consumeWorkOrderPart(
+  workOrderId: number,
+  payload: {
+    part_id: number;
+    quantity: number;
+    notes?: string;
+  }
+): Promise<WorkOrderPartConsumption> {
+  return postAuthed<WorkOrderPartConsumption, typeof payload>(`/work-orders/${workOrderId}/parts/consume`, payload);
+}
+
+export async function deleteWorkOrderPartConsumption(workOrderId: number, consumptionId: number): Promise<void> {
+  return deleteAuthed(`/work-orders/${workOrderId}/parts/${consumptionId}`);
 }
 
 export async function fetchFailureLogs(): Promise<FailureLog[]> {

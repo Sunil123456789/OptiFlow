@@ -28,6 +28,7 @@ from app.spare_parts_store import SparePartsStore
 from app.stations_store import StationsStore
 from app.import_history_store import ImportHistoryStore
 from app.users_store import UsersStore
+from app.work_order_parts_store import WorkOrderPartsStore
 from app.work_orders_store import WorkOrdersStore
 
 app = FastAPI(title="OptiFlow API", version="0.1.0")
@@ -36,6 +37,7 @@ plans_store = PlansStore()
 users_store = UsersStore()
 roles_store = RolesStore()
 work_orders_store = WorkOrdersStore()
+work_order_parts_store = WorkOrderPartsStore()
 audit_store = AuditStore()
 departments_store = DepartmentsStore()
 lines_store = LinesStore()
@@ -126,6 +128,26 @@ class WorkOrder(WorkOrderBase):
     machine_name: str
     created_at: str | None = None
     source_plan_id: int | None = None
+
+
+class WorkOrderPartConsumptionCreate(BaseModel):
+    part_id: int = Field(gt=0)
+    quantity: int = Field(gt=0)
+    notes: str = Field(default="", max_length=300)
+
+
+class WorkOrderPartConsumption(BaseModel):
+    id: int
+    work_order_id: int
+    part_id: int
+    part_code: str
+    part_name: str
+    quantity: int
+    unit_cost: float
+    total_cost: float
+    consumed_at: str
+    consumed_by: str
+    notes: str
 
 
 class FailureLogBase(BaseModel):
@@ -2308,6 +2330,128 @@ def update_work_order(
     )
 
     return _work_order_with_machine_name(updated)
+
+
+@app.get("/api/v1/work-orders/{work_order_id}/parts", response_model=list[WorkOrderPartConsumption])
+def list_work_order_consumptions(
+    work_order_id: int,
+    current_user: dict[str, object] = Depends(get_current_user),
+) -> list[WorkOrderPartConsumption]:
+    work_order = work_orders_store.get(work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    rows = work_order_parts_store.list_by_work_order(work_order_id)
+    rows.sort(key=lambda row: _safe_parse_datetime(str(row.get("consumed_at", ""))), reverse=True)
+    return [WorkOrderPartConsumption(**row) for row in rows]
+
+
+@app.post(
+    "/api/v1/work-orders/{work_order_id}/parts/consume",
+    response_model=WorkOrderPartConsumption,
+    status_code=status.HTTP_201_CREATED,
+)
+def consume_work_order_part(
+    work_order_id: int,
+    payload: WorkOrderPartConsumptionCreate,
+    current_user: dict[str, object] = Depends(require_permission("can_update_work_orders")),
+) -> WorkOrderPartConsumption:
+    work_order = work_orders_store.get(work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    if str(work_order.get("status", "")) == "cancelled":
+        raise HTTPException(status_code=400, detail="Cannot consume parts for cancelled work order")
+
+    part = spare_parts_store.get(payload.part_id)
+    if part is None:
+        raise HTTPException(status_code=404, detail="Spare part not found")
+    if not bool(part.get("is_active", True)):
+        raise HTTPException(status_code=400, detail="Cannot consume an inactive spare part")
+
+    stock_qty = int(part.get("stock_qty", 0))
+    if stock_qty < payload.quantity:
+        raise HTTPException(status_code=409, detail="Insufficient stock quantity")
+
+    updated_part = spare_parts_store.update(payload.part_id, {"stock_qty": stock_qty - payload.quantity})
+    if updated_part is None:
+        raise HTTPException(status_code=404, detail="Spare part not found")
+
+    unit_cost = round(float(part.get("unit_cost", 0)), 2)
+    created = work_order_parts_store.create(
+        {
+            "work_order_id": work_order_id,
+            "part_id": payload.part_id,
+            "part_code": str(part.get("part_code", "")),
+            "part_name": str(part.get("name", "")),
+            "quantity": payload.quantity,
+            "unit_cost": unit_cost,
+            "total_cost": round(unit_cost * payload.quantity, 2),
+            "consumed_at": datetime.now(timezone.utc).isoformat(),
+            "consumed_by": str(current_user.get("email", "")),
+            "notes": payload.notes,
+        }
+    )
+
+    write_audit_event(
+        current_user,
+        "work_order",
+        str(work_order_id),
+        "update",
+        f"Consumed {payload.quantity} x {part.get('part_code', '')} for work order '{work_order.get('work_order_code', '')}'",
+    )
+    write_audit_event(
+        current_user,
+        "spare_part",
+        str(payload.part_id),
+        "update",
+        f"Consumed {payload.quantity} unit(s); remaining stock {updated_part.get('stock_qty', 0)}",
+    )
+    return WorkOrderPartConsumption(**created)
+
+
+@app.delete("/api/v1/work-orders/{work_order_id}/parts/{consumption_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_work_order_consumption(
+    work_order_id: int,
+    consumption_id: int,
+    current_user: dict[str, object] = Depends(require_permission("can_update_work_orders")),
+) -> Response:
+    work_order = work_orders_store.get(work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    consumption = work_order_parts_store.get(consumption_id)
+    if consumption is None or int(consumption.get("work_order_id", 0)) != work_order_id:
+        raise HTTPException(status_code=404, detail="Consumption record not found")
+
+    part_id = int(consumption.get("part_id", 0))
+    quantity = int(consumption.get("quantity", 0))
+    part = spare_parts_store.get(part_id)
+    if part is not None:
+        stock_qty = int(part.get("stock_qty", 0))
+        spare_parts_store.update(part_id, {"stock_qty": stock_qty + quantity})
+
+    deleted = work_order_parts_store.delete(consumption_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Consumption record not found")
+
+    write_audit_event(
+        current_user,
+        "work_order",
+        str(work_order_id),
+        "update",
+        f"Reversed part consumption record {consumption_id} for work order '{work_order.get('work_order_code', '')}'",
+    )
+    if part_id > 0:
+        write_audit_event(
+            current_user,
+            "spare_part",
+            str(part_id),
+            "update",
+            f"Restored stock after reversing consumption record {consumption_id}",
+        )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.delete("/api/v1/work-orders/{work_order_id}", status_code=status.HTTP_204_NO_CONTENT)

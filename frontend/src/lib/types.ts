@@ -93,6 +93,20 @@ export type WorkOrder = {
   priority: "low" | "medium" | "high" | "critical";
 };
 
+export type WorkOrderPartConsumption = {
+  id: number;
+  work_order_id: number;
+  part_id: number;
+  part_code: string;
+  part_name: string;
+  quantity: number;
+  unit_cost: number;
+  total_cost: number;
+  consumed_at: string;
+  consumed_by: string;
+  notes: string;
+};
+
 export type FailureLog = {
   id: number;
   machine_id: number;

@@ -3,17 +3,20 @@ import { useEffect, useState } from "react";
 import { Modal } from "../components/Modal";
 import {
   autoGenerateWorkOrders,
+  consumeWorkOrderPart,
   createWorkOrder,
   deleteWorkOrder,
   exportWorkOrders,
   fetchMachines,
+  fetchSpareParts,
+  fetchWorkOrderPartConsumptions,
   fetchWorkOrdersWithOptions,
   updateWorkOrder,
 } from "../lib/api";
 import { exportToCsv, exportToPdfLikePrint } from "../lib/exporters";
 import { canCreateWorkOrders, canUpdateWorkOrders } from "../lib/permissions";
 import type { AuthUser } from "../lib/types";
-import type { Machine, WorkOrder } from "../lib/types";
+import type { Machine, SparePart, WorkOrder, WorkOrderPartConsumption } from "../lib/types";
 
 function toLabel(value: string): string {
   if (value.includes("_")) {
@@ -54,6 +57,14 @@ export function WorkOrdersPage({ currentUser }: WorkOrdersPageProps) {
   const [priorityFilter, setPriorityFilter] = useState<"all" | "low" | "medium" | "high" | "critical">("all");
   const [sortBy, setSortBy] = useState<"work_order_code" | "machine_name" | "status" | "priority">("work_order_code");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [consumptionWorkOrder, setConsumptionWorkOrder] = useState<WorkOrder | null>(null);
+  const [spareParts, setSpareParts] = useState<SparePart[]>([]);
+  const [consumptions, setConsumptions] = useState<WorkOrderPartConsumption[]>([]);
+  const [consumePartId, setConsumePartId] = useState<number>(0);
+  const [consumeQuantity, setConsumeQuantity] = useState("1");
+  const [consumeNotes, setConsumeNotes] = useState("");
+  const [isConsumingPart, setIsConsumingPart] = useState(false);
+  const [isLoadingConsumption, setIsLoadingConsumption] = useState(false);
 
   async function loadWorkOrders(targetPage = page) {
     try {
@@ -235,6 +246,81 @@ export function WorkOrdersPage({ currentUser }: WorkOrdersPageProps) {
     }
   }
 
+  async function openConsumeModal(workOrder: WorkOrder) {
+    setConsumptionWorkOrder(workOrder);
+    setConsumePartId(0);
+    setConsumeQuantity("1");
+    setConsumeNotes("");
+
+    try {
+      setIsLoadingConsumption(true);
+      const [partsData, consumptionData] = await Promise.all([
+        fetchSpareParts(1, 200),
+        fetchWorkOrderPartConsumptions(workOrder.id),
+      ]);
+      const activeParts = partsData.items.filter((part) => part.is_active);
+      setSpareParts(activeParts);
+      setConsumptions(consumptionData);
+      if (activeParts.length > 0) {
+        setConsumePartId(activeParts[0].id);
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Failed to load spare parts and consumption history.");
+      }
+    } finally {
+      setIsLoadingConsumption(false);
+    }
+  }
+
+  function closeConsumeModal() {
+    setConsumptionWorkOrder(null);
+    setConsumptions([]);
+    setSpareParts([]);
+    setConsumePartId(0);
+    setConsumeQuantity("1");
+    setConsumeNotes("");
+  }
+
+  async function handleConsumePart() {
+    if (!consumptionWorkOrder || consumePartId <= 0) {
+      return;
+    }
+
+    try {
+      setIsConsumingPart(true);
+      await consumeWorkOrderPart(consumptionWorkOrder.id, {
+        part_id: consumePartId,
+        quantity: Number(consumeQuantity),
+        notes: consumeNotes.trim(),
+      });
+
+      const [partsData, consumptionData] = await Promise.all([
+        fetchSpareParts(1, 200),
+        fetchWorkOrderPartConsumptions(consumptionWorkOrder.id),
+      ]);
+      const activeParts = partsData.items.filter((part) => part.is_active);
+      setSpareParts(activeParts);
+      setConsumptions(consumptionData);
+      if (activeParts.length > 0 && !activeParts.some((part) => part.id === consumePartId)) {
+        setConsumePartId(activeParts[0].id);
+      }
+      setConsumeQuantity("1");
+      setConsumeNotes("");
+      await loadWorkOrders(page);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Failed to consume spare part.");
+      }
+    } finally {
+      setIsConsumingPart(false);
+    }
+  }
+
   return (
     <section className="page">
       <div className="page-head">
@@ -397,6 +483,14 @@ export function WorkOrdersPage({ currentUser }: WorkOrdersPageProps) {
                     <button
                       className="tab"
                       type="button"
+                      onClick={() => openConsumeModal(row)}
+                      disabled={!canUpdateWorkOrders(currentUser)}
+                    >
+                      Consume Part
+                    </button>
+                    <button
+                      className="tab"
+                      type="button"
                       onClick={() => handleDeleteOrder(row)}
                       disabled={!canCreateWorkOrders(currentUser)}
                     >
@@ -463,6 +557,91 @@ export function WorkOrdersPage({ currentUser }: WorkOrdersPageProps) {
             </select>
           </label>
         </div>
+      </Modal>
+
+      <Modal
+        open={consumptionWorkOrder !== null}
+        title={consumptionWorkOrder ? `Consume Parts - ${consumptionWorkOrder.work_order_code}` : "Consume Parts"}
+        onClose={closeConsumeModal}
+        actions={
+          <>
+            <button className="tab" type="button" onClick={closeConsumeModal}>
+              Close
+            </button>
+            <button
+              className="primary-btn"
+              type="button"
+              onClick={handleConsumePart}
+              disabled={isConsumingPart || consumePartId <= 0 || Number(consumeQuantity) <= 0}
+            >
+              {isConsumingPart ? "Saving..." : "Consume"}
+            </button>
+          </>
+        }
+      >
+        <div className="inline-form-grid">
+          <label>
+            Spare Part
+            <select value={consumePartId} onChange={(e) => setConsumePartId(Number(e.target.value))}>
+              {spareParts.map((part) => (
+                <option key={part.id} value={part.id}>
+                  {part.part_code} - {part.name} (Stock: {part.stock_qty})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Quantity
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={consumeQuantity}
+              onChange={(e) => setConsumeQuantity(e.target.value)}
+            />
+          </label>
+          <label>
+            Notes
+            <input value={consumeNotes} onChange={(e) => setConsumeNotes(e.target.value)} placeholder="Optional note" />
+          </label>
+        </div>
+
+        {isLoadingConsumption && <p className="state-note">Loading consumption history...</p>}
+        {!isLoadingConsumption && (
+          <div className="table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Part</th>
+                  <th>Qty</th>
+                  <th>Unit Cost</th>
+                  <th>Total</th>
+                  <th>By</th>
+                  <th>At</th>
+                </tr>
+              </thead>
+              <tbody>
+                {consumptions.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      {item.part_code} - {item.part_name}
+                    </td>
+                    <td>{item.quantity}</td>
+                    <td>{item.unit_cost.toFixed(2)}</td>
+                    <td>{item.total_cost.toFixed(2)}</td>
+                    <td>{item.consumed_by}</td>
+                    <td>{new Date(item.consumed_at).toLocaleString()}</td>
+                  </tr>
+                ))}
+                {consumptions.length === 0 && (
+                  <tr>
+                    <td colSpan={6}>No parts consumed yet for this work order.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Modal>
     </section>
   );
