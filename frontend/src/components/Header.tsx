@@ -1,27 +1,17 @@
 ﻿import type { AuthUser } from "../lib/types";
-import { canManageAssets, canManageUsers, roleLabel } from "../lib/permissions";
+import { roleLabel } from "../lib/permissions";
+import { getVisibleTabs, type AppTab } from "../lib/navigation";
 
 type HeaderProps = {
-  activeTab: string;
-  onTabChange: (tab: string) => void;
+  activeTab: AppTab;
+  onTabChange: (tab: AppTab) => void;
   currentUser: AuthUser;
   onLogout: () => void;
   openAlertCount: number;
 };
 
 export function Header({ activeTab, onTabChange, currentUser, onLogout, openAlertCount }: HeaderProps) {
-  const tabs = [
-    "Overview",
-    "Alerts",
-    "Machines",
-    ...(canManageAssets(currentUser) ? ["Spare Parts"] : []),
-    "Plans",
-    "Work Orders",
-    "Failure Logs",
-    "Reports",
-    ...(canManageAssets(currentUser) ? ["Plant Map"] : []),
-    ...(canManageUsers(currentUser) ? ["Users", "Audit Logs"] : []),
-  ];
+  const tabs = getVisibleTabs(currentUser);
 
   return (
     <header className="topbar">
