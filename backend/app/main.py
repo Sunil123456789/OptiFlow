@@ -728,7 +728,20 @@ def dashboard_summary(current_user: dict[str, object] = Depends(get_current_user
     overdue_count = len([w for w in work_orders if w["status"] == "overdue"])
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
-    recent_failures = [f for f in failures if _safe_parse_datetime(str(f.get("occurred_at", ""))) >= cutoff]
+    recent_failures: list[dict[str, object]] = []
+    for f in failures:
+        occurred_raw = f.get("occurred_at")
+        if not occurred_raw:
+            continue
+        try:
+            occurred = datetime.fromisoformat(str(occurred_raw))
+        except (TypeError, ValueError):
+            # Skip records with unparseable occurred_at for KPI calculations
+            continue
+        if occurred.tzinfo is None:
+            occurred = occurred.replace(tzinfo=timezone.utc)
+        if occurred >= cutoff:
+            recent_failures.append(f)
     downtime_hours = round(sum(float(f.get("downtime_hours", 0)) for f in recent_failures), 2)
     repair_cost = round(sum(float(f.get("repair_cost", 0)) for f in recent_failures), 2)
 
