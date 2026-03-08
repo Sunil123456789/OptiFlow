@@ -52,6 +52,7 @@ if ($authHeaders.Count -gt 0) {
     if (-not (Test-Endpoint -Name "Integrity Checks" -Url "$ApiBaseUrl/api/v1/plant-mapping/integrity-checks" -Headers $authHeaders)) { $allPass = $false }
     if (-not (Test-Endpoint -Name "Spare Parts" -Url "$ApiBaseUrl/api/v1/spare-parts?page=1&page_size=5" -Headers $authHeaders)) { $allPass = $false }
     if (-not (Test-Endpoint -Name "Alerts" -Url "$ApiBaseUrl/api/v1/alerts?status_filter=open" -Headers $authHeaders)) { $allPass = $false }
+    if (-not (Test-Endpoint -Name "Alert Delivery Attempts" -Url "$ApiBaseUrl/api/v1/alerts/delivery-attempts?channel=all&limit=5" -Headers $authHeaders)) { $allPass = $false }
 
     try {
         $partsRes = Invoke-RestMethod -Method Get -Uri "$ApiBaseUrl/api/v1/spare-parts?page=1&page_size=1" -Headers $authHeaders -TimeoutSec 15
@@ -101,6 +102,17 @@ if ($authHeaders.Count -gt 0) {
         Write-Host "[PASS] Smoke Cleanup -> Temporary work order and machine deleted"
     } catch {
         Write-Host "[FAIL] Phase-5 Consumption Flow -> $($_.Exception.Message)"
+        $allPass = $false
+    }
+
+    try {
+        $dispatchSummary = Invoke-RestMethod -Method Post -Uri "$ApiBaseUrl/api/v1/alerts/dispatch-open" -Headers $authHeaders -ContentType "application/json" -Body "{}" -TimeoutSec 20
+        if ($null -eq $dispatchSummary) {
+            throw "Dispatch endpoint returned no response body"
+        }
+        Write-Host "[PASS] Alert Dispatch Open -> requested=$($dispatchSummary.requested) sent=$($dispatchSummary.sent) failed=$($dispatchSummary.failed) skipped=$($dispatchSummary.skipped)"
+    } catch {
+        Write-Host "[FAIL] Phase-6 Alert Dispatch -> $($_.Exception.Message)"
         $allPass = $false
     }
 }

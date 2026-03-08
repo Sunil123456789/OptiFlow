@@ -30,6 +30,34 @@ export type AlertItem = {
   acknowledged_by?: string | null;
 };
 
+export type AlertDeliveryAttempt = {
+  id: number;
+  alert_id: string;
+  channel: "email" | "webhook";
+  status: "sent" | "failed" | "skipped";
+  attempt_no: number;
+  attempted_at: string;
+  target: string;
+  message: string;
+  response_code?: number | null;
+};
+
+export type AlertDispatchResult = {
+  alert_id: string;
+  channel: "email" | "webhook";
+  status: "sent" | "failed" | "skipped";
+  attempt_no: number;
+  message: string;
+};
+
+export type AlertDispatchSummary = {
+  requested: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  results: AlertDispatchResult[];
+};
+
 export type RolePermissions = {
   can_manage_users: boolean;
   can_manage_assets: boolean;

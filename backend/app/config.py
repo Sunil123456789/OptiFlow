@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 120
 
+    alert_delivery_email_enabled: bool = False
+    alert_delivery_email_to: str = ""
+    alert_delivery_webhook_enabled: bool = False
+    alert_delivery_webhook_url: str = ""
+    alert_delivery_webhook_timeout_seconds: int = 5
+    alert_delivery_max_retries: int = 2
+
 
 settings = Settings()
 
