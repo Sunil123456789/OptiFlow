@@ -1,4 +1,6 @@
 ﻿import type {
+  AlertDeliveryAttempt,
+  AlertDispatchSummary,
   AlertItem,
   AutoGenerateWorkOrdersResult,
   AuditLog,
@@ -610,6 +612,23 @@ export async function fetchAlerts(statusFilter: "all" | "open" | "acknowledged" 
 
 export async function acknowledgeAlert(alertId: string): Promise<AlertItem> {
   return postAuthed<AlertItem, Record<string, never>>(`/alerts/${encodeURIComponent(alertId)}/acknowledge`, {});
+}
+
+export async function dispatchOpenAlerts(): Promise<AlertDispatchSummary> {
+  return postAuthed<AlertDispatchSummary, Record<string, never>>("/alerts/dispatch-open", {});
+}
+
+export async function fetchAlertDeliveryAttempts(options?: {
+  alertId?: string;
+  channel?: "all" | "email" | "webhook";
+  limit?: number;
+}): Promise<AlertDeliveryAttempt[]> {
+  const params = new URLSearchParams({
+    alert_id: options?.alertId ?? "",
+    channel: options?.channel ?? "all",
+    limit: String(options?.limit ?? 30),
+  });
+  return fetchAuthed<AlertDeliveryAttempt[]>(`/alerts/delivery-attempts?${params.toString()}`);
 }
 
 export async function createFailureLog(payload: {

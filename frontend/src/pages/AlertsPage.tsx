@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { acknowledgeAlert, fetchAlerts } from "../lib/api";
+import { acknowledgeAlert, dispatchOpenAlerts, fetchAlertDeliveryAttempts, fetchAlerts } from "../lib/api";
 import { canManageAssets } from "../lib/permissions";
-import type { AlertItem, AuthUser } from "../lib/types";
+import type { AlertDeliveryAttempt, AlertDispatchSummary, AlertItem, AuthUser } from "../lib/types";
 
 type AlertsPageProps = {
   currentUser: AuthUser;
@@ -18,7 +18,10 @@ export function AlertsPage({ currentUser, onAlertsChanged }: AlertsPageProps) {
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "acknowledged">("open");
   const [ruleFilter, setRuleFilter] = useState<"all" | AlertItem["rule_type"]>("all");
   const [isLoading, setIsLoading] = useState(true);
+  const [isDispatching, setIsDispatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dispatchSummary, setDispatchSummary] = useState<AlertDispatchSummary | null>(null);
+  const [deliveryAttempts, setDeliveryAttempts] = useState<AlertDeliveryAttempt[]>([]);
 
   const canAcknowledge = canManageAssets(currentUser);
 
@@ -39,8 +42,23 @@ export function AlertsPage({ currentUser, onAlertsChanged }: AlertsPageProps) {
     }
   }
 
+  async function loadDeliveryAttempts() {
+    if (!canAcknowledge) {
+      setDeliveryAttempts([]);
+      return;
+    }
+    try {
+      const data = await fetchAlertDeliveryAttempts({ limit: 20 });
+      setDeliveryAttempts(data);
+    } catch {
+      // Keep alert loading resilient even if attempts endpoint is temporarily unavailable.
+      setDeliveryAttempts([]);
+    }
+  }
+
   useEffect(() => {
     loadAlerts(statusFilter);
+    loadDeliveryAttempts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
@@ -67,6 +85,22 @@ export function AlertsPage({ currentUser, onAlertsChanged }: AlertsPageProps) {
       await loadAlerts(statusFilter);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to acknowledge alert.");
+    }
+  }
+
+  async function handleDispatchOpenAlerts() {
+    if (!canAcknowledge) {
+      return;
+    }
+    try {
+      setIsDispatching(true);
+      const summary = await dispatchOpenAlerts();
+      setDispatchSummary(summary);
+      await Promise.all([loadAlerts(statusFilter), loadDeliveryAttempts()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to dispatch open alerts.");
+    } finally {
+      setIsDispatching(false);
     }
   }
 
@@ -111,8 +145,19 @@ export function AlertsPage({ currentUser, onAlertsChanged }: AlertsPageProps) {
         >
           Low Stock
         </button>
+        {canAcknowledge && (
+          <button className="ghost-btn" type="button" onClick={handleDispatchOpenAlerts} disabled={isDispatching}>
+            {isDispatching ? "Dispatching..." : "Dispatch Open Alerts"}
+          </button>
+        )}
         {!canAcknowledge && <p className="state-note">Only asset managers can acknowledge alerts.</p>}
       </div>
+
+      {dispatchSummary && (
+        <p className="state-note">
+          Dispatch summary: requested {dispatchSummary.requested}, sent {dispatchSummary.sent}, failed {dispatchSummary.failed}, skipped {dispatchSummary.skipped}.
+        </p>
+      )}
 
       {isLoading && <p className="state-note">Loading alerts...</p>}
       {error && <p className="state-note error">{error}</p>}
@@ -164,6 +209,41 @@ export function AlertsPage({ currentUser, onAlertsChanged }: AlertsPageProps) {
           </tbody>
         </table>
       </div>
+
+      {canAcknowledge && (
+        <div className="table-card">
+          <h3>Recent Delivery Attempts</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Alert ID</th>
+                <th>Channel</th>
+                <th>Status</th>
+                <th>Attempt</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deliveryAttempts.length === 0 && (
+                <tr>
+                  <td colSpan={6}>No delivery attempts recorded yet.</td>
+                </tr>
+              )}
+              {deliveryAttempts.map((item) => (
+                <tr key={item.id}>
+                  <td>{new Date(item.attempted_at).toLocaleString()}</td>
+                  <td>{item.alert_id}</td>
+                  <td>{item.channel}</td>
+                  <td>{item.status}</td>
+                  <td>{item.attempt_no}</td>
+                  <td>{item.message}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
