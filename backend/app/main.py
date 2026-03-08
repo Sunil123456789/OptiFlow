@@ -101,6 +101,7 @@ class WorkOrder(WorkOrderBase):
 class FailureLogBase(BaseModel):
     machine_id: int = Field(gt=0)
     occurred_at: str = Field(min_length=10, max_length=40)
+    severity: Literal["low", "medium", "high", "critical"] = "medium"
     downtime_hours: float = Field(gt=0)
     repair_cost: float = Field(ge=0)
     root_cause: str = Field(min_length=3, max_length=200)
@@ -114,6 +115,24 @@ class FailureLogCreate(FailureLogBase):
 class FailureLog(FailureLogBase):
     id: int
     machine_name: str
+    response_started_at: str | None = None
+    resolved_at: str | None = None
+    sla_response_target_hours: int
+    sla_resolution_target_hours: int
+    sla_status: Literal["open", "at_risk", "breached", "met"]
+
+
+class FailureLogSlaUpdate(BaseModel):
+    severity: Literal["low", "medium", "high", "critical"] | None = None
+    response_started_at: str | None = None
+    resolved_at: str | None = None
+
+
+class FailureLogSlaSummary(BaseModel):
+    open_alerts: int
+    at_risk: int
+    breached: int
+    met: int
 
 
 class KpiTrendPoint(BaseModel):
@@ -1055,7 +1074,74 @@ def _work_order_with_machine_name(work_order: dict[str, object]) -> WorkOrder:
 def _failure_log_with_machine_name(failure_log: dict[str, object]) -> FailureLog:
     machine = machines_store.get(int(failure_log["machine_id"]))
     machine_name = machine["name"] if machine else "Unknown Machine"
-    return FailureLog(**failure_log, machine_name=machine_name)
+    severity = str(failure_log.get("severity", "medium")).lower()
+    if severity not in {"low", "medium", "high", "critical"}:
+        severity = "medium"
+
+    response_target, resolution_target = _sla_targets_by_severity(severity)
+    sla_status = _compute_failure_log_sla_status(
+        occurred_at=str(failure_log.get("occurred_at", "")),
+        response_started_at=str(failure_log.get("response_started_at", "")) if failure_log.get("response_started_at") else None,
+        resolved_at=str(failure_log.get("resolved_at", "")) if failure_log.get("resolved_at") else None,
+        response_target_hours=response_target,
+        resolution_target_hours=resolution_target,
+    )
+
+    return FailureLog(
+        **failure_log,
+        severity=severity,
+        machine_name=machine_name,
+        response_started_at=str(failure_log.get("response_started_at")) if failure_log.get("response_started_at") else None,
+        resolved_at=str(failure_log.get("resolved_at")) if failure_log.get("resolved_at") else None,
+        sla_response_target_hours=response_target,
+        sla_resolution_target_hours=resolution_target,
+        sla_status=sla_status,
+    )
+
+
+def _sla_targets_by_severity(severity: str) -> tuple[int, int]:
+    targets = {
+        "low": (24, 72),
+        "medium": (8, 24),
+        "high": (4, 12),
+        "critical": (1, 4),
+    }
+    return targets.get(severity, targets["medium"])
+
+
+def _compute_failure_log_sla_status(
+    occurred_at: str,
+    response_started_at: str | None,
+    resolved_at: str | None,
+    response_target_hours: int,
+    resolution_target_hours: int,
+) -> Literal["open", "at_risk", "breached", "met"]:
+    occurred = _safe_parse_datetime(occurred_at)
+    response_deadline = occurred + timedelta(hours=response_target_hours)
+    resolution_deadline = occurred + timedelta(hours=resolution_target_hours)
+    now = datetime.now(timezone.utc)
+
+    response_time = _safe_parse_datetime(response_started_at) if response_started_at else None
+    resolved_time = _safe_parse_datetime(resolved_at) if resolved_at else None
+
+    response_breached = response_time is None and now > response_deadline
+    if response_time is not None and response_time > response_deadline:
+        response_breached = True
+
+    resolution_breached = resolved_time is None and now > resolution_deadline
+    if resolved_time is not None and resolved_time > resolution_deadline:
+        resolution_breached = True
+
+    if response_breached or resolution_breached:
+        return "breached"
+
+    if resolved_time is not None:
+        return "met"
+
+    if now >= (resolution_deadline - timedelta(hours=2)):
+        return "at_risk"
+
+    return "open"
 
 
 def _safe_parse_datetime(raw: str) -> datetime:
@@ -2062,6 +2148,7 @@ def create_failure_log(
         {
             "machine_id": payload.machine_id,
             "occurred_at": occurred_at,
+            "severity": payload.severity,
             "downtime_hours": payload.downtime_hours,
             "repair_cost": payload.repair_cost,
             "root_cause": payload.root_cause,
@@ -2089,4 +2176,39 @@ def delete_failure_log(
 
     write_audit_event(current_user, "failure_log", str(failure_log_id), "delete", f"Deleted failure log id {failure_log_id}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.patch("/api/v1/failure-logs/{failure_log_id}/sla", response_model=FailureLog)
+def update_failure_log_sla(
+    failure_log_id: int,
+    payload: FailureLogSlaUpdate,
+    current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
+) -> FailureLog:
+    existing = failure_logs_store.get(failure_log_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Failure log not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+    if "response_started_at" in updates and updates["response_started_at"]:
+        updates["response_started_at"] = _safe_parse_datetime(str(updates["response_started_at"])).isoformat()
+    if "resolved_at" in updates and updates["resolved_at"]:
+        updates["resolved_at"] = _safe_parse_datetime(str(updates["resolved_at"])).isoformat()
+
+    updated = failure_logs_store.update(failure_log_id, updates)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Failure log not found")
+
+    write_audit_event(current_user, "failure_log", str(failure_log_id), "update", f"Updated SLA metadata for failure log {failure_log_id}")
+    return _failure_log_with_machine_name(updated)
+
+
+@app.get("/api/v1/failure-logs/sla-summary", response_model=FailureLogSlaSummary)
+def failure_log_sla_summary(current_user: dict[str, object] = Depends(get_current_user)) -> FailureLogSlaSummary:
+    rows = [_failure_log_with_machine_name(item) for item in failure_logs_store.list()]
+    return FailureLogSlaSummary(
+        open_alerts=len([row for row in rows if row.sla_status == "open"]),
+        at_risk=len([row for row in rows if row.sla_status == "at_risk"]),
+        breached=len([row for row in rows if row.sla_status == "breached"]),
+        met=len([row for row in rows if row.sla_status == "met"]),
+    )
 

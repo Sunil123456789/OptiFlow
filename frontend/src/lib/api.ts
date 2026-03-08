@@ -6,6 +6,7 @@
   DashboardSummary,
   Department,
   FailureLog,
+  FailureLogSlaSummary,
   RollbackResult,
   KpiTrendPoint,
   Line,
@@ -498,12 +499,28 @@ export async function acknowledgeAlert(alertId: string): Promise<AlertItem> {
 export async function createFailureLog(payload: {
   machine_id: number;
   occurred_at: string;
+  severity?: "low" | "medium" | "high" | "critical";
   downtime_hours: number;
   repair_cost: number;
   root_cause: string;
   notes?: string;
 }): Promise<FailureLog> {
   return postAuthed<FailureLog, typeof payload>("/failure-logs", payload);
+}
+
+export async function updateFailureLogSla(
+  failureLogId: number,
+  payload: Partial<{
+    severity: "low" | "medium" | "high" | "critical";
+    response_started_at: string | null;
+    resolved_at: string | null;
+  }>
+): Promise<FailureLog> {
+  return patchAuthed<FailureLog, typeof payload>(`/failure-logs/${failureLogId}/sla`, payload);
+}
+
+export async function fetchFailureLogSlaSummary(): Promise<FailureLogSlaSummary> {
+  return fetchAuthed<FailureLogSlaSummary>("/failure-logs/sla-summary");
 }
 
 export async function deleteFailureLog(failureLogId: number): Promise<void> {

@@ -87,10 +87,23 @@ export type FailureLog = {
   machine_id: number;
   machine_name: string;
   occurred_at: string;
+  severity: "low" | "medium" | "high" | "critical";
   downtime_hours: number;
   repair_cost: number;
   root_cause: string;
   notes: string;
+  response_started_at?: string | null;
+  resolved_at?: string | null;
+  sla_response_target_hours: number;
+  sla_resolution_target_hours: number;
+  sla_status: "open" | "at_risk" | "breached" | "met";
+};
+
+export type FailureLogSlaSummary = {
+  open_alerts: number;
+  at_risk: number;
+  breached: number;
+  met: number;
 };
 
 export type AutoGenerateWorkOrdersResult = {
