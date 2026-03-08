@@ -123,10 +123,10 @@ export function WorkOrdersPage({ currentUser }: WorkOrdersPageProps) {
     try {
       setIsAutoGenerating(true);
       const result = await autoGenerateWorkOrders();
+      await loadWorkOrders(page);
       setError(
         `Auto-generated ${result.generated} work order(s), skipped ${result.skipped_existing}, scanned ${result.scanned_plans} active plans.`
       );
-      await loadWorkOrders(page);
     } catch (err) {
       if (err instanceof Error) {
         setError(err.message);
