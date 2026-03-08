@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 120
 
+    # Logging – set LOG_FILE to an absolute writable path to enable file logging.
+    # Leave empty (the default) to log to stdout only.
+    log_file: str = ""
+    log_level: str = "INFO"
+
 
 settings = Settings()
 

@@ -43,10 +43,32 @@ failure_logs_store = FailureLogsStore()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 logger = logging.getLogger("optiflow.api")
 if not logger.handlers:
-    logging.basicConfig(level=logging.INFO)
-    file_handler = RotatingFileHandler("optiflow-api.log", maxBytes=1_000_000, backupCount=5, encoding="utf-8")
-    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
-    logger.addHandler(file_handler)
+    _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    _log_level_str = settings.log_level.upper()
+    if _log_level_str not in _VALID_LOG_LEVELS:
+        _log_level_str = "INFO"
+        import warnings as _warnings
+        _warnings.warn(
+            f"Invalid LOG_LEVEL {settings.log_level!r}; falling back to INFO. "
+            f"Valid values: {', '.join(sorted(_VALID_LOG_LEVELS))}",
+            stacklevel=1,
+        )
+    _log_level = getattr(logging, _log_level_str)
+    logging.basicConfig(level=_log_level)
+    if settings.log_file:
+        try:
+            _file_handler = RotatingFileHandler(
+                settings.log_file, maxBytes=1_000_000, backupCount=5, encoding="utf-8"
+            )
+            _file_handler.setLevel(_log_level)
+            _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+            logger.addHandler(_file_handler)
+        except OSError as _exc:
+            logger.warning(
+                "Could not create log file handler for %r: %s – logging to stdout only",
+                settings.log_file,
+                _exc,
+            )
 
 
 class MachineBase(BaseModel):
