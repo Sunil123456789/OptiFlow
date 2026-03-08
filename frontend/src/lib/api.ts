@@ -18,6 +18,7 @@
   PlantIntegrityReport,
   RoleDefinition,
   ReliabilityReport,
+  SparePart,
   RolePermissions,
   Station,
   UserRecord,
@@ -56,11 +57,18 @@ type WorkOrderListOptions = {
 
 type AuditLogListOptions = {
   q?: string;
-  entityType?: "all" | "user" | "role" | "machine" | "plan" | "work_order" | "department" | "line" | "station" | "master_import" | "failure_log" | "alert";
+  entityType?: "all" | "user" | "role" | "machine" | "plan" | "work_order" | "department" | "line" | "station" | "master_import" | "failure_log" | "alert" | "spare_part";
   actionFilter?: "all" | "create" | "update" | "delete";
   startDate?: string;
   endDate?: string;
   sortBy?: "event_at" | "actor_email" | "entity_type" | "action";
+  sortDir?: "asc" | "desc";
+};
+
+type SparePartListOptions = {
+  q?: string;
+  lowStockOnly?: boolean;
+  sortBy?: "part_code" | "name" | "category" | "stock_qty" | "reorder_level" | "unit_cost" | "is_active";
   sortDir?: "asc" | "desc";
 };
 
@@ -328,6 +336,36 @@ export async function fetchMachines(page = 1, pageSize = 10): Promise<PaginatedR
   return fetchMachinesWithOptions(page, pageSize, {});
 }
 
+export async function fetchSpareParts(page = 1, pageSize = 10): Promise<PaginatedResponse<SparePart>> {
+  return fetchSparePartsWithOptions(page, pageSize, {});
+}
+
+export async function fetchSparePartsWithOptions(
+  page = 1,
+  pageSize = 10,
+  options: SparePartListOptions
+): Promise<PaginatedResponse<SparePart>> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+    q: options.q ?? "",
+    low_stock_only: String(Boolean(options.lowStockOnly)),
+    sort_by: options.sortBy ?? "part_code",
+    sort_dir: options.sortDir ?? "asc",
+  });
+  return fetchAuthed<PaginatedResponse<SparePart>>(`/spare-parts?${params.toString()}`);
+}
+
+export async function exportSpareParts(options: SparePartListOptions): Promise<SparePart[]> {
+  const params = new URLSearchParams({
+    q: options.q ?? "",
+    low_stock_only: String(Boolean(options.lowStockOnly)),
+    sort_by: options.sortBy ?? "part_code",
+    sort_dir: options.sortDir ?? "asc",
+  });
+  return fetchAuthed<SparePart[]>(`/spare-parts/export?${params.toString()}`);
+}
+
 export async function fetchMachinesWithOptions(
   page = 1,
   pageSize = 10,
@@ -421,6 +459,37 @@ export async function createMachine(payload: {
   status: "active" | "inactive" | "retired";
 }): Promise<Machine> {
   return postAuthed<Machine, typeof payload>("/machines", payload);
+}
+
+export async function createSparePart(payload: {
+  part_code: string;
+  name: string;
+  category: string;
+  stock_qty: number;
+  reorder_level: number;
+  unit_cost: number;
+  is_active: boolean;
+}): Promise<SparePart> {
+  return postAuthed<SparePart, typeof payload>("/spare-parts", payload);
+}
+
+export async function updateSparePart(
+  partId: number,
+  payload: Partial<{
+    part_code: string;
+    name: string;
+    category: string;
+    stock_qty: number;
+    reorder_level: number;
+    unit_cost: number;
+    is_active: boolean;
+  }>
+): Promise<SparePart> {
+  return patchAuthed<SparePart, typeof payload>(`/spare-parts/${partId}`, payload);
+}
+
+export async function deleteSparePart(partId: number): Promise<void> {
+  return deleteAuthed(`/spare-parts/${partId}`);
 }
 
 export async function updateMachine(

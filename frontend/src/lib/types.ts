@@ -71,6 +71,17 @@ export type Machine = {
   status: "active" | "inactive" | "retired";
 };
 
+export type SparePart = {
+  id: number;
+  part_code: string;
+  name: string;
+  category: string;
+  stock_qty: number;
+  reorder_level: number;
+  unit_cost: number;
+  is_active: boolean;
+};
+
 export type WorkOrder = {
   id: number;
   work_order_code: string;
@@ -179,7 +190,8 @@ export type AuditLog = {
     | "station"
     | "master_import"
     | "failure_log"
-    | "alert";
+    | "alert"
+    | "spare_part";
   entity_id: string;
   action: "create" | "update" | "delete";
   summary: string;

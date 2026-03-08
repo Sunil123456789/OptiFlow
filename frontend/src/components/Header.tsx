@@ -14,6 +14,7 @@ export function Header({ activeTab, onTabChange, currentUser, onLogout, openAler
     "Overview",
     "Alerts",
     "Machines",
+    ...(canManageAssets(currentUser) ? ["Spare Parts"] : []),
     "Plans",
     "Work Orders",
     "Failure Logs",

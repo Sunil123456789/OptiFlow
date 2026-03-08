@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "part_code": "SP-BRG-6205",
+    "name": "Bearing 6205",
+    "category": "Mechanical",
+    "stock_qty": 24,
+    "reorder_level": 8,
+    "unit_cost": 12.5,
+    "is_active": true
+  },
+  {
+    "id": 2,
+    "part_code": "SP-BLT-A42",
+    "name": "Drive Belt A42",
+    "category": "Mechanical",
+    "stock_qty": 11,
+    "reorder_level": 10,
+    "unit_cost": 18.0,
+    "is_active": true
+  },
+  {
+    "id": 3,
+    "part_code": "SP-SNS-PT100",
+    "name": "PT100 Temperature Sensor",
+    "category": "Electrical",
+    "stock_qty": 6,
+    "reorder_level": 5,
+    "unit_cost": 44.25,
+    "is_active": true
+  }
+]
