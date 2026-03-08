@@ -24,9 +24,11 @@ from app.lines_store import LinesStore
 from app.machines_store import MachinesStore
 from app.plans_store import PlansStore
 from app.roles_store import RolesStore
+from app.spare_parts_store import SparePartsStore
 from app.stations_store import StationsStore
 from app.import_history_store import ImportHistoryStore
 from app.users_store import UsersStore
+from app.work_order_parts_store import WorkOrderPartsStore
 from app.work_orders_store import WorkOrdersStore
 
 app = FastAPI(title="OptiFlow API", version="0.1.0")
@@ -35,10 +37,12 @@ plans_store = PlansStore()
 users_store = UsersStore()
 roles_store = RolesStore()
 work_orders_store = WorkOrdersStore()
+work_order_parts_store = WorkOrderPartsStore()
 audit_store = AuditStore()
 departments_store = DepartmentsStore()
 lines_store = LinesStore()
 stations_store = StationsStore()
+spare_parts_store = SparePartsStore()
 import_history_store = ImportHistoryStore()
 failure_logs_store = FailureLogsStore()
 alerts_store = AlertsStore()
@@ -73,6 +77,34 @@ class Machine(MachineBase):
     id: int
 
 
+class SparePartBase(BaseModel):
+    part_code: str = Field(min_length=3, max_length=80)
+    name: str = Field(min_length=2, max_length=160)
+    category: str = Field(min_length=2, max_length=80)
+    stock_qty: int = Field(ge=0)
+    reorder_level: int = Field(ge=0)
+    unit_cost: float = Field(ge=0)
+    is_active: bool = True
+
+
+class SparePartCreate(SparePartBase):
+    pass
+
+
+class SparePartUpdate(BaseModel):
+    part_code: str | None = Field(default=None, min_length=3, max_length=80)
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+    category: str | None = Field(default=None, min_length=2, max_length=80)
+    stock_qty: int | None = Field(default=None, ge=0)
+    reorder_level: int | None = Field(default=None, ge=0)
+    unit_cost: float | None = Field(default=None, ge=0)
+    is_active: bool | None = None
+
+
+class SparePart(SparePartBase):
+    id: int
+
+
 class WorkOrderBase(BaseModel):
     work_order_code: str = Field(min_length=4, max_length=40)
     machine_id: int = Field(gt=0)
@@ -96,6 +128,26 @@ class WorkOrder(WorkOrderBase):
     machine_name: str
     created_at: str | None = None
     source_plan_id: int | None = None
+
+
+class WorkOrderPartConsumptionCreate(BaseModel):
+    part_id: int = Field(gt=0)
+    quantity: int = Field(gt=0)
+    notes: str = Field(default="", max_length=300)
+
+
+class WorkOrderPartConsumption(BaseModel):
+    id: int
+    work_order_id: int
+    part_id: int
+    part_code: str
+    part_name: str
+    quantity: int
+    unit_cost: float
+    total_cost: float
+    consumed_at: str
+    consumed_by: str
+    notes: str
 
 
 class FailureLogBase(BaseModel):
@@ -171,7 +223,7 @@ class KpiTrendPoint(BaseModel):
 
 class AlertItem(BaseModel):
     id: str
-    rule_type: Literal["repeat_failure", "overdue_plan", "import_issue"]
+    rule_type: Literal["repeat_failure", "overdue_plan", "import_issue", "low_stock"]
     severity: Literal["low", "medium", "high", "critical"]
     title: str
     description: str
@@ -292,6 +344,11 @@ class PaginationMeta(BaseModel):
 
 class MachinesListResponse(BaseModel):
     items: list[Machine]
+    pagination: PaginationMeta
+
+
+class SparePartsListResponse(BaseModel):
+    items: list[SparePart]
     pagination: PaginationMeta
 
 
@@ -848,7 +905,7 @@ def list_audit_logs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=100),
     q: str = Query(default=""),
-    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log", "alert"] = Query(default="all"),
+    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log", "alert", "spare_part"] = Query(default="all"),
     action_filter: Literal["all", "create", "update", "delete"] = Query(default="all"),
     start_date: str = Query(default=""),
     end_date: str = Query(default=""),
@@ -866,7 +923,7 @@ def list_audit_logs(
 def export_audit_logs(
     current_user: dict[str, object] = Depends(require_permission("can_manage_users")),
     q: str = Query(default=""),
-    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log", "alert"] = Query(default="all"),
+    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log", "alert", "spare_part"] = Query(default="all"),
     action_filter: Literal["all", "create", "update", "delete"] = Query(default="all"),
     start_date: str = Query(default=""),
     end_date: str = Query(default=""),
@@ -1419,6 +1476,33 @@ def _build_alert_candidates() -> list[dict[str, object]]:
             }
         )
 
+    for part in spare_parts_store.list():
+        if not bool(part.get("is_active", True)):
+            continue
+        stock_qty = int(part.get("stock_qty", 0))
+        reorder_level = int(part.get("reorder_level", 0))
+        if stock_qty > reorder_level:
+            continue
+
+        part_id = int(part.get("id", 0))
+        part_code = str(part.get("part_code", "UNKNOWN"))
+        part_name = str(part.get("name", "Spare Part"))
+        severity = "critical" if stock_qty == 0 else "high"
+        alerts.append(
+            {
+                "id": f"low-stock-part-{part_id}",
+                "rule_type": "low_stock",
+                "severity": severity,
+                "title": f"Low stock: {part_code}",
+                "description": f"{part_name} is at {stock_qty} unit(s), reorder level is {reorder_level}.",
+                "triggered_at": datetime.now(timezone.utc).isoformat(),
+                "machine_id": None,
+                "machine_name": None,
+                "plan_id": None,
+                "batch_id": None,
+            }
+        )
+
     return _sort_alerts(alerts)
 
 
@@ -1493,7 +1577,7 @@ def write_audit_event(
 
 def _filter_sort_audit_events(
     q: str,
-    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log", "alert"],
+    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log", "alert", "spare_part"],
     action_filter: Literal["all", "create", "update", "delete"],
     start_at: datetime | None,
     end_at: datetime | None,
@@ -1806,6 +1890,35 @@ def _filter_sort_machines(
     return all_items
 
 
+def _filter_sort_spare_parts(
+    q: str,
+    low_stock_only: bool,
+    sort_by: Literal["part_code", "name", "category", "stock_qty", "reorder_level", "unit_cost", "is_active"],
+    sort_dir: Literal["asc", "desc"],
+) -> list[dict[str, object]]:
+    all_items = spare_parts_store.list()
+    term = q.strip().lower()
+
+    if low_stock_only:
+        all_items = [
+            item
+            for item in all_items
+            if int(item.get("stock_qty", 0)) <= int(item.get("reorder_level", 0)) and bool(item.get("is_active", True))
+        ]
+
+    if term:
+        all_items = [
+            item
+            for item in all_items
+            if term in str(item["part_code"]).lower()
+            or term in str(item["name"]).lower()
+            or term in str(item["category"]).lower()
+        ]
+
+    all_items.sort(key=lambda item: _sort_key(item[sort_by]), reverse=(sort_dir == "desc"))
+    return all_items
+
+
 def _filter_sort_plans(
     q: str,
     plan_type: Literal["all", "calendar", "runtime"],
@@ -1874,6 +1987,95 @@ def list_machines(
     all_items = _filter_sort_machines(q, sort_by, sort_dir)
     paged, meta = paginate_items(all_items, page, page_size)
     return MachinesListResponse(items=[Machine(**machine) for machine in paged], pagination=meta)
+
+
+@app.get("/api/v1/spare-parts", response_model=SparePartsListResponse)
+def list_spare_parts(
+    current_user: dict[str, object] = Depends(get_current_user),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+    q: str = Query(default=""),
+    low_stock_only: bool = Query(default=False),
+    sort_by: Literal["part_code", "name", "category", "stock_qty", "reorder_level", "unit_cost", "is_active"] = Query(default="part_code"),
+    sort_dir: Literal["asc", "desc"] = Query(default="asc"),
+) -> SparePartsListResponse:
+    all_items = _filter_sort_spare_parts(q, low_stock_only, sort_by, sort_dir)
+    paged, meta = paginate_items(all_items, page, page_size)
+    return SparePartsListResponse(items=[SparePart(**part) for part in paged], pagination=meta)
+
+
+@app.get("/api/v1/spare-parts/export", response_model=list[SparePart])
+def export_spare_parts(
+    current_user: dict[str, object] = Depends(get_current_user),
+    q: str = Query(default=""),
+    low_stock_only: bool = Query(default=False),
+    sort_by: Literal["part_code", "name", "category", "stock_qty", "reorder_level", "unit_cost", "is_active"] = Query(default="part_code"),
+    sort_dir: Literal["asc", "desc"] = Query(default="asc"),
+) -> list[SparePart]:
+    all_items = _filter_sort_spare_parts(q, low_stock_only, sort_by, sort_dir)
+    return [SparePart(**part) for part in all_items]
+
+
+@app.post("/api/v1/spare-parts", response_model=SparePart, status_code=status.HTTP_201_CREATED)
+def create_spare_part(
+    payload: SparePartCreate,
+    current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
+) -> SparePart:
+    part_code = payload.part_code.strip().upper()
+    if spare_parts_store.code_exists(part_code):
+        raise HTTPException(status_code=409, detail="Part code already exists")
+
+    created = spare_parts_store.create({
+        **payload.model_dump(),
+        "part_code": part_code,
+        "name": payload.name.strip(),
+        "category": payload.category.strip(),
+    })
+    write_audit_event(current_user, "spare_part", str(created["id"]), "create", f"Created spare part '{created['part_code']}'")
+    return SparePart(**created)
+
+
+@app.patch("/api/v1/spare-parts/{part_id}", response_model=SparePart)
+def update_spare_part(
+    part_id: int,
+    payload: SparePartUpdate,
+    current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
+) -> SparePart:
+    existing = spare_parts_store.get(part_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Spare part not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+    next_code = updates.get("part_code")
+    if isinstance(next_code, str):
+        normalized = next_code.strip().upper()
+        if spare_parts_store.code_exists(normalized, exclude_id=part_id):
+            raise HTTPException(status_code=409, detail="Part code already exists")
+        updates["part_code"] = normalized
+
+    if isinstance(updates.get("name"), str):
+        updates["name"] = str(updates["name"]).strip()
+    if isinstance(updates.get("category"), str):
+        updates["category"] = str(updates["category"]).strip()
+
+    updated = spare_parts_store.update(part_id, updates)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Spare part not found")
+
+    write_audit_event(current_user, "spare_part", str(updated["id"]), "update", f"Updated spare part '{updated['part_code']}'")
+    return SparePart(**updated)
+
+
+@app.delete("/api/v1/spare-parts/{part_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_spare_part(
+    part_id: int,
+    current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
+) -> Response:
+    deleted = spare_parts_store.delete(part_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Spare part not found")
+    write_audit_event(current_user, "spare_part", str(part_id), "delete", f"Deleted spare part id {part_id}")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get("/api/v1/machines/export", response_model=list[Machine])
@@ -2155,6 +2357,128 @@ def update_work_order(
     )
 
     return _work_order_with_machine_name(updated)
+
+
+@app.get("/api/v1/work-orders/{work_order_id}/parts", response_model=list[WorkOrderPartConsumption])
+def list_work_order_consumptions(
+    work_order_id: int,
+    current_user: dict[str, object] = Depends(get_current_user),
+) -> list[WorkOrderPartConsumption]:
+    work_order = work_orders_store.get(work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    rows = work_order_parts_store.list_by_work_order(work_order_id)
+    rows.sort(key=lambda row: _safe_parse_datetime(str(row.get("consumed_at", ""))), reverse=True)
+    return [WorkOrderPartConsumption(**row) for row in rows]
+
+
+@app.post(
+    "/api/v1/work-orders/{work_order_id}/parts/consume",
+    response_model=WorkOrderPartConsumption,
+    status_code=status.HTTP_201_CREATED,
+)
+def consume_work_order_part(
+    work_order_id: int,
+    payload: WorkOrderPartConsumptionCreate,
+    current_user: dict[str, object] = Depends(require_permission("can_update_work_orders")),
+) -> WorkOrderPartConsumption:
+    work_order = work_orders_store.get(work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    if str(work_order.get("status", "")) == "cancelled":
+        raise HTTPException(status_code=400, detail="Cannot consume parts for cancelled work order")
+
+    part = spare_parts_store.get(payload.part_id)
+    if part is None:
+        raise HTTPException(status_code=404, detail="Spare part not found")
+    if not bool(part.get("is_active", True)):
+        raise HTTPException(status_code=400, detail="Cannot consume an inactive spare part")
+
+    stock_qty = int(part.get("stock_qty", 0))
+    if stock_qty < payload.quantity:
+        raise HTTPException(status_code=409, detail="Insufficient stock quantity")
+
+    updated_part = spare_parts_store.update(payload.part_id, {"stock_qty": stock_qty - payload.quantity})
+    if updated_part is None:
+        raise HTTPException(status_code=404, detail="Spare part not found")
+
+    unit_cost = round(float(part.get("unit_cost", 0)), 2)
+    created = work_order_parts_store.create(
+        {
+            "work_order_id": work_order_id,
+            "part_id": payload.part_id,
+            "part_code": str(part.get("part_code", "")),
+            "part_name": str(part.get("name", "")),
+            "quantity": payload.quantity,
+            "unit_cost": unit_cost,
+            "total_cost": round(unit_cost * payload.quantity, 2),
+            "consumed_at": datetime.now(timezone.utc).isoformat(),
+            "consumed_by": str(current_user.get("email", "")),
+            "notes": payload.notes,
+        }
+    )
+
+    write_audit_event(
+        current_user,
+        "work_order",
+        str(work_order_id),
+        "update",
+        f"Consumed {payload.quantity} x {part.get('part_code', '')} for work order '{work_order.get('work_order_code', '')}'",
+    )
+    write_audit_event(
+        current_user,
+        "spare_part",
+        str(payload.part_id),
+        "update",
+        f"Consumed {payload.quantity} unit(s); remaining stock {updated_part.get('stock_qty', 0)}",
+    )
+    return WorkOrderPartConsumption(**created)
+
+
+@app.delete("/api/v1/work-orders/{work_order_id}/parts/{consumption_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_work_order_consumption(
+    work_order_id: int,
+    consumption_id: int,
+    current_user: dict[str, object] = Depends(require_permission("can_update_work_orders")),
+) -> Response:
+    work_order = work_orders_store.get(work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    consumption = work_order_parts_store.get(consumption_id)
+    if consumption is None or int(consumption.get("work_order_id", 0)) != work_order_id:
+        raise HTTPException(status_code=404, detail="Consumption record not found")
+
+    part_id = int(consumption.get("part_id", 0))
+    quantity = int(consumption.get("quantity", 0))
+    part = spare_parts_store.get(part_id)
+    if part is not None:
+        stock_qty = int(part.get("stock_qty", 0))
+        spare_parts_store.update(part_id, {"stock_qty": stock_qty + quantity})
+
+    deleted = work_order_parts_store.delete(consumption_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Consumption record not found")
+
+    write_audit_event(
+        current_user,
+        "work_order",
+        str(work_order_id),
+        "update",
+        f"Reversed part consumption record {consumption_id} for work order '{work_order.get('work_order_code', '')}'",
+    )
+    if part_id > 0:
+        write_audit_event(
+            current_user,
+            "spare_part",
+            str(part_id),
+            "update",
+            f"Restored stock after reversing consumption record {consumption_id}",
+        )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.delete("/api/v1/work-orders/{work_order_id}", status_code=status.HTTP_204_NO_CONTENT)

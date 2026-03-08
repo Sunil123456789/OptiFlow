@@ -18,10 +18,12 @@
   PlantIntegrityReport,
   RoleDefinition,
   ReliabilityReport,
+  SparePart,
   RolePermissions,
   Station,
   UserRecord,
   WorkOrder,
+  WorkOrderPartConsumption,
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
@@ -56,11 +58,18 @@ type WorkOrderListOptions = {
 
 type AuditLogListOptions = {
   q?: string;
-  entityType?: "all" | "user" | "role" | "machine" | "plan" | "work_order" | "department" | "line" | "station" | "master_import" | "failure_log" | "alert";
+  entityType?: "all" | "user" | "role" | "machine" | "plan" | "work_order" | "department" | "line" | "station" | "master_import" | "failure_log" | "alert" | "spare_part";
   actionFilter?: "all" | "create" | "update" | "delete";
   startDate?: string;
   endDate?: string;
   sortBy?: "event_at" | "actor_email" | "entity_type" | "action";
+  sortDir?: "asc" | "desc";
+};
+
+type SparePartListOptions = {
+  q?: string;
+  lowStockOnly?: boolean;
+  sortBy?: "part_code" | "name" | "category" | "stock_qty" | "reorder_level" | "unit_cost" | "is_active";
   sortDir?: "asc" | "desc";
 };
 
@@ -328,6 +337,36 @@ export async function fetchMachines(page = 1, pageSize = 10): Promise<PaginatedR
   return fetchMachinesWithOptions(page, pageSize, {});
 }
 
+export async function fetchSpareParts(page = 1, pageSize = 10): Promise<PaginatedResponse<SparePart>> {
+  return fetchSparePartsWithOptions(page, pageSize, {});
+}
+
+export async function fetchSparePartsWithOptions(
+  page = 1,
+  pageSize = 10,
+  options: SparePartListOptions
+): Promise<PaginatedResponse<SparePart>> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+    q: options.q ?? "",
+    low_stock_only: String(Boolean(options.lowStockOnly)),
+    sort_by: options.sortBy ?? "part_code",
+    sort_dir: options.sortDir ?? "asc",
+  });
+  return fetchAuthed<PaginatedResponse<SparePart>>(`/spare-parts?${params.toString()}`);
+}
+
+export async function exportSpareParts(options: SparePartListOptions): Promise<SparePart[]> {
+  const params = new URLSearchParams({
+    q: options.q ?? "",
+    low_stock_only: String(Boolean(options.lowStockOnly)),
+    sort_by: options.sortBy ?? "part_code",
+    sort_dir: options.sortDir ?? "asc",
+  });
+  return fetchAuthed<SparePart[]>(`/spare-parts/export?${params.toString()}`);
+}
+
 export async function fetchMachinesWithOptions(
   page = 1,
   pageSize = 10,
@@ -423,6 +462,37 @@ export async function createMachine(payload: {
   return postAuthed<Machine, typeof payload>("/machines", payload);
 }
 
+export async function createSparePart(payload: {
+  part_code: string;
+  name: string;
+  category: string;
+  stock_qty: number;
+  reorder_level: number;
+  unit_cost: number;
+  is_active: boolean;
+}): Promise<SparePart> {
+  return postAuthed<SparePart, typeof payload>("/spare-parts", payload);
+}
+
+export async function updateSparePart(
+  partId: number,
+  payload: Partial<{
+    part_code: string;
+    name: string;
+    category: string;
+    stock_qty: number;
+    reorder_level: number;
+    unit_cost: number;
+    is_active: boolean;
+  }>
+): Promise<SparePart> {
+  return patchAuthed<SparePart, typeof payload>(`/spare-parts/${partId}`, payload);
+}
+
+export async function deleteSparePart(partId: number): Promise<void> {
+  return deleteAuthed(`/spare-parts/${partId}`);
+}
+
 export async function updateMachine(
   machineId: number,
   payload: Partial<{
@@ -495,6 +565,25 @@ export async function deleteWorkOrder(workOrderId: number): Promise<void> {
 
 export async function autoGenerateWorkOrders(): Promise<AutoGenerateWorkOrdersResult> {
   return postAuthed<AutoGenerateWorkOrdersResult, Record<string, never>>("/work-orders/auto-generate", {});
+}
+
+export async function fetchWorkOrderPartConsumptions(workOrderId: number): Promise<WorkOrderPartConsumption[]> {
+  return fetchAuthed<WorkOrderPartConsumption[]>(`/work-orders/${workOrderId}/parts`);
+}
+
+export async function consumeWorkOrderPart(
+  workOrderId: number,
+  payload: {
+    part_id: number;
+    quantity: number;
+    notes?: string;
+  }
+): Promise<WorkOrderPartConsumption> {
+  return postAuthed<WorkOrderPartConsumption, typeof payload>(`/work-orders/${workOrderId}/parts/consume`, payload);
+}
+
+export async function deleteWorkOrderPartConsumption(workOrderId: number, consumptionId: number): Promise<void> {
+  return deleteAuthed(`/work-orders/${workOrderId}/parts/${consumptionId}`);
 }
 
 export async function fetchFailureLogs(): Promise<FailureLog[]> {

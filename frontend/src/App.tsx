@@ -12,6 +12,7 @@ import { FailureLogsPage } from "./pages/FailureLogsPage";
 import { PlantMapPage } from "./pages/PlantMapPage";
 import { PlansPage } from "./pages/PlansPage";
 import { ReportsPage } from "./pages/ReportsPage";
+import { SparePartsPage } from "./pages/SparePartsPage";
 import { UsersPage } from "./pages/UsersPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
 
@@ -153,6 +154,9 @@ export function App() {
 
     if (activeTab === "Machines") {
       return <MachinesPage currentUser={currentUser} />;
+    }
+    if (activeTab === "Spare Parts") {
+      return <SparePartsPage currentUser={currentUser} />;
     }
     if (activeTab === "Alerts") {
       return <AlertsPage currentUser={currentUser} onAlertsChanged={setOpenAlertCount} />;

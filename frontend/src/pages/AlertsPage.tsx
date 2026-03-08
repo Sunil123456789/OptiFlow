@@ -16,6 +16,7 @@ function severityLabel(severity: AlertItem["severity"]): string {
 export function AlertsPage({ currentUser, onAlertsChanged }: AlertsPageProps) {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "acknowledged">("open");
+  const [ruleFilter, setRuleFilter] = useState<"all" | AlertItem["rule_type"]>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,12 +44,19 @@ export function AlertsPage({ currentUser, onAlertsChanged }: AlertsPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
+  const visibleAlerts = useMemo(() => {
+    if (ruleFilter === "all") {
+      return alerts;
+    }
+    return alerts.filter((item) => item.rule_type === ruleFilter);
+  }, [alerts, ruleFilter]);
+
   const summary = useMemo(() => {
-    const open = alerts.filter((item) => item.status === "open").length;
-    const acknowledged = alerts.filter((item) => item.status === "acknowledged").length;
-    const critical = alerts.filter((item) => item.severity === "critical" || item.severity === "high").length;
+    const open = visibleAlerts.filter((item) => item.status === "open").length;
+    const acknowledged = visibleAlerts.filter((item) => item.status === "acknowledged").length;
+    const critical = visibleAlerts.filter((item) => item.severity === "critical" || item.severity === "high").length;
     return { open, acknowledged, critical };
-  }, [alerts]);
+  }, [visibleAlerts]);
 
   async function handleAcknowledge(alertId: string) {
     if (!canAcknowledge) {
@@ -66,7 +74,7 @@ export function AlertsPage({ currentUser, onAlertsChanged }: AlertsPageProps) {
     <section className="page">
       <div className="page-head">
         <h2>Alerts</h2>
-        <p>Operational alerts for repeated failures, overdue plans, and import issues.</p>
+        <p>Operational alerts for repeated failures, overdue plans, import issues, and low spare-part stock.</p>
       </div>
 
       <div className="metric-grid compact">
@@ -93,6 +101,16 @@ export function AlertsPage({ currentUser, onAlertsChanged }: AlertsPageProps) {
           <option value="acknowledged">Acknowledged Alerts</option>
           <option value="all">All Alerts</option>
         </select>
+        <button className={ruleFilter === "all" ? "tab active" : "tab"} type="button" onClick={() => setRuleFilter("all")}>
+          All Rules
+        </button>
+        <button
+          className={ruleFilter === "low_stock" ? "tab active" : "tab"}
+          type="button"
+          onClick={() => setRuleFilter("low_stock")}
+        >
+          Low Stock
+        </button>
         {!canAcknowledge && <p className="state-note">Only asset managers can acknowledge alerts.</p>}
       </div>
 
@@ -113,12 +131,12 @@ export function AlertsPage({ currentUser, onAlertsChanged }: AlertsPageProps) {
             </tr>
           </thead>
           <tbody>
-            {!isLoading && alerts.length === 0 && (
+            {!isLoading && visibleAlerts.length === 0 && (
               <tr>
                 <td colSpan={7}>No alerts found for the selected filter.</td>
               </tr>
             )}
-            {alerts.map((item) => (
+            {visibleAlerts.map((item) => (
               <tr key={item.id}>
                 <td>
                   <span className={`badge severity-${item.severity}`}>{severityLabel(item.severity)}</span>

@@ -26,10 +26,20 @@ $checks = @(
 $authHeaders = @{}
 $loginSucceeded = $false
 try {
-    $adminEmails = @("admin@optiflow.local", "admin@fixbeforefail.local")
-    foreach ($adminEmail in $adminEmails) {
+    $credentialAttempts = @()
+    if ($env:E2E_ADMIN_EMAIL -and $env:E2E_ADMIN_PASSWORD) {
+        $credentialAttempts += @{ email = $env:E2E_ADMIN_EMAIL; password = $env:E2E_ADMIN_PASSWORD }
+    }
+    $credentialAttempts += @(
+        @{ email = "admin@optiflow.local"; password = "changeme" },
+        @{ email = "admin@fixbeforefail.local"; password = "changeme" }
+    )
+
+    foreach ($attempt in $credentialAttempts) {
         try {
-            $loginBody = @{ email = $adminEmail; password = "changeme" } | ConvertTo-Json
+            $adminEmail = [string]$attempt.email
+            $adminPassword = [string]$attempt.password
+            $loginBody = @{ email = $adminEmail; password = $adminPassword } | ConvertTo-Json
             $loginRes = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "http://localhost:8000/api/v1/auth/login" -ContentType "application/json" -Body $loginBody -TimeoutSec 10
             $token = ($loginRes.Content | ConvertFrom-Json).access_token
             $authHeaders = @{ Authorization = "Bearer $token" }

@@ -16,7 +16,7 @@ export type KpiTrendPoint = {
 
 export type AlertItem = {
   id: string;
-  rule_type: "repeat_failure" | "overdue_plan" | "import_issue";
+  rule_type: "repeat_failure" | "overdue_plan" | "import_issue" | "low_stock";
   severity: "low" | "medium" | "high" | "critical";
   title: string;
   description: string;
@@ -71,6 +71,17 @@ export type Machine = {
   status: "active" | "inactive" | "retired";
 };
 
+export type SparePart = {
+  id: number;
+  part_code: string;
+  name: string;
+  category: string;
+  stock_qty: number;
+  reorder_level: number;
+  unit_cost: number;
+  is_active: boolean;
+};
+
 export type WorkOrder = {
   id: number;
   work_order_code: string;
@@ -80,6 +91,20 @@ export type WorkOrder = {
   created_at?: string | null;
   status: "open" | "in_progress" | "done" | "overdue" | "cancelled";
   priority: "low" | "medium" | "high" | "critical";
+};
+
+export type WorkOrderPartConsumption = {
+  id: number;
+  work_order_id: number;
+  part_id: number;
+  part_code: string;
+  part_name: string;
+  quantity: number;
+  unit_cost: number;
+  total_cost: number;
+  consumed_at: string;
+  consumed_by: string;
+  notes: string;
 };
 
 export type FailureLog = {
@@ -179,7 +204,8 @@ export type AuditLog = {
     | "station"
     | "master_import"
     | "failure_log"
-    | "alert";
+    | "alert"
+    | "spare_part";
   entity_id: string;
   action: "create" | "update" | "delete";
   summary: string;
