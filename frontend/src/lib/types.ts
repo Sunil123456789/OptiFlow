@@ -14,6 +14,22 @@ export type KpiTrendPoint = {
   repair_cost: number;
 };
 
+export type AlertItem = {
+  id: string;
+  rule_type: "repeat_failure" | "overdue_plan" | "import_issue";
+  severity: "low" | "medium" | "high" | "critical";
+  title: string;
+  description: string;
+  triggered_at: string;
+  status: "open" | "acknowledged";
+  machine_id?: number | null;
+  machine_name?: string | null;
+  plan_id?: number | null;
+  batch_id?: string | null;
+  acknowledged_at?: string | null;
+  acknowledged_by?: string | null;
+};
+
 export type RolePermissions = {
   can_manage_users: boolean;
   can_manage_assets: boolean;
@@ -122,7 +138,8 @@ export type AuditLog = {
     | "line"
     | "station"
     | "master_import"
-    | "failure_log";
+    | "failure_log"
+    | "alert";
   entity_id: string;
   action: "create" | "update" | "delete";
   summary: string;

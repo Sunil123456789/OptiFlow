@@ -1,4 +1,5 @@
 ﻿import type {
+  AlertItem,
   AutoGenerateWorkOrdersResult,
   AuditLog,
   AuthUser,
@@ -53,7 +54,7 @@ type WorkOrderListOptions = {
 
 type AuditLogListOptions = {
   q?: string;
-  entityType?: "all" | "user" | "role" | "machine" | "plan" | "work_order" | "department" | "line" | "station" | "master_import" | "failure_log";
+  entityType?: "all" | "user" | "role" | "machine" | "plan" | "work_order" | "department" | "line" | "station" | "master_import" | "failure_log" | "alert";
   actionFilter?: "all" | "create" | "update" | "delete";
   startDate?: string;
   endDate?: string;
@@ -483,6 +484,15 @@ export async function autoGenerateWorkOrders(): Promise<AutoGenerateWorkOrdersRe
 
 export async function fetchFailureLogs(): Promise<FailureLog[]> {
   return fetchAuthed<FailureLog[]>("/failure-logs");
+}
+
+export async function fetchAlerts(statusFilter: "all" | "open" | "acknowledged" = "all"): Promise<AlertItem[]> {
+  const params = new URLSearchParams({ status_filter: statusFilter });
+  return fetchAuthed<AlertItem[]>(`/alerts?${params.toString()}`);
+}
+
+export async function acknowledgeAlert(alertId: string): Promise<AlertItem> {
+  return postAuthed<AlertItem, Record<string, never>>(`/alerts/${encodeURIComponent(alertId)}/acknowledge`, {});
 }
 
 export async function createFailureLog(payload: {
