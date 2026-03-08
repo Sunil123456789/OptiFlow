@@ -1097,11 +1097,25 @@ def _plan_due_soon(next_due: str) -> bool:
 
 def _next_auto_work_order_code() -> str:
     base = datetime.now(timezone.utc).strftime("AUTO-%Y%m%d")
-    existing_codes = {str(row.get("work_order_code", "")).upper() for row in work_orders_store.list()}
+
+    # Cache existing codes per base to avoid repeatedly scanning all work orders
+    cache = getattr(_next_auto_work_order_code, "_cache", None)
+    if cache is None or cache.get("base") != base:
+        existing_codes = {
+            str(row.get("work_order_code", "")).upper()
+            for row in work_orders_store.list()
+        }
+        cache = {"base": base, "existing_codes": existing_codes}
+        setattr(_next_auto_work_order_code, "_cache", cache)
+
+    existing_codes = cache["existing_codes"]
     index = 1
     while True:
         candidate = f"{base}-{index:03d}"
-        if candidate.upper() not in existing_codes:
+        upper_candidate = candidate.upper()
+        if upper_candidate not in existing_codes:
+            # Reserve this code in the cached set so subsequent calls won't reuse it
+            existing_codes.add(upper_candidate)
             return candidate
         index += 1
 
