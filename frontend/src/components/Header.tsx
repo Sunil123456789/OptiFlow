@@ -6,15 +6,18 @@ type HeaderProps = {
   onTabChange: (tab: string) => void;
   currentUser: AuthUser;
   onLogout: () => void;
+  openAlertCount: number;
 };
 
-export function Header({ activeTab, onTabChange, currentUser, onLogout }: HeaderProps) {
+export function Header({ activeTab, onTabChange, currentUser, onLogout, openAlertCount }: HeaderProps) {
   const tabs = [
     "Overview",
+    "Alerts",
     "Machines",
     "Plans",
     "Work Orders",
     "Failure Logs",
+    "Reports",
     ...(canManageAssets(currentUser) ? ["Plant Map"] : []),
     ...(canManageUsers(currentUser) ? ["Users", "Audit Logs"] : []),
   ];
@@ -38,6 +41,7 @@ export function Header({ activeTab, onTabChange, currentUser, onLogout }: Header
               type="button"
             >
               {tab}
+              {tab === "Alerts" && openAlertCount > 0 && <span className="tab-badge">{openAlertCount}</span>}
             </button>
           ))}
         </nav>

@@ -15,6 +15,7 @@ from redis import Redis
 from fastapi.security import OAuth2PasswordBearer
 
 from app.config import settings
+from app.alerts_store import AlertsStore
 from app.audit_store import AuditStore
 from app.database import db_healthcheck
 from app.departments_store import DepartmentsStore
@@ -40,6 +41,7 @@ lines_store = LinesStore()
 stations_store = StationsStore()
 import_history_store = ImportHistoryStore()
 failure_logs_store = FailureLogsStore()
+alerts_store = AlertsStore()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 logger = logging.getLogger("optiflow.api")
 if not logger.handlers:
@@ -99,6 +101,7 @@ class WorkOrder(WorkOrderBase):
 class FailureLogBase(BaseModel):
     machine_id: int = Field(gt=0)
     occurred_at: str = Field(min_length=10, max_length=40)
+    severity: Literal["low", "medium", "high", "critical"] = "medium"
     downtime_hours: float = Field(gt=0)
     repair_cost: float = Field(ge=0)
     root_cause: str = Field(min_length=3, max_length=200)
@@ -112,6 +115,51 @@ class FailureLogCreate(FailureLogBase):
 class FailureLog(FailureLogBase):
     id: int
     machine_name: str
+    response_started_at: str | None = None
+    resolved_at: str | None = None
+    sla_response_target_hours: int
+    sla_resolution_target_hours: int
+    sla_status: Literal["open", "at_risk", "breached", "met"]
+
+
+class FailureLogSlaUpdate(BaseModel):
+    severity: Literal["low", "medium", "high", "critical"] | None = None
+    response_started_at: str | None = None
+    resolved_at: str | None = None
+
+
+class FailureLogSlaSummary(BaseModel):
+    open_alerts: int
+    at_risk: int
+    breached: int
+    met: int
+
+
+class MachineDowntimeStat(BaseModel):
+    machine_id: int
+    machine_name: str
+    failure_count: int
+    downtime_hours: float
+    repair_cost: float
+
+
+class LineDowntimeStat(BaseModel):
+    line_name: str
+    failure_count: int
+    downtime_hours: float
+
+
+class ReliabilityReport(BaseModel):
+    start_date: str
+    end_date: str
+    period_days: int
+    failure_count: int
+    total_downtime_hours: float
+    total_repair_cost: float
+    mtbf_hours: float
+    mttr_hours: float
+    downtime_by_machine: list[MachineDowntimeStat]
+    downtime_by_line: list[LineDowntimeStat]
 
 
 class KpiTrendPoint(BaseModel):
@@ -119,6 +167,22 @@ class KpiTrendPoint(BaseModel):
     failures: int
     downtime_hours: float
     repair_cost: float
+
+
+class AlertItem(BaseModel):
+    id: str
+    rule_type: Literal["repeat_failure", "overdue_plan", "import_issue"]
+    severity: Literal["low", "medium", "high", "critical"]
+    title: str
+    description: str
+    triggered_at: str
+    status: Literal["open", "acknowledged"]
+    machine_id: int | None = None
+    machine_name: str | None = None
+    plan_id: int | None = None
+    batch_id: str | None = None
+    acknowledged_at: str | None = None
+    acknowledged_by: str | None = None
 
 
 class AutoGenerateWorkOrdersResult(BaseModel):
@@ -756,13 +820,35 @@ def dashboard_kpi_trends(
     ]
 
 
+@app.get("/api/v1/dashboard/kpi-trends/export", response_model=list[KpiTrendPoint])
+def export_dashboard_kpi_trends(
+    current_user: dict[str, object] = Depends(get_current_user),
+    days: int = Query(default=30, ge=7, le=180),
+) -> list[KpiTrendPoint]:
+    return dashboard_kpi_trends(current_user=current_user, days=days)
+
+
+@app.get("/api/v1/reports/reliability", response_model=ReliabilityReport)
+def reliability_report(
+    current_user: dict[str, object] = Depends(get_current_user),
+    start_date: str = Query(default=""),
+    end_date: str = Query(default=""),
+) -> ReliabilityReport:
+    now = datetime.now(timezone.utc)
+    start_at = _parse_date_param(start_date, is_end=False) or (now - timedelta(days=29)).replace(hour=0, minute=0, second=0, microsecond=0)
+    end_at = _parse_date_param(end_date, is_end=True) or now
+    if end_at < start_at:
+        raise HTTPException(status_code=400, detail="end_date must be after start_date")
+    return _build_reliability_report(start_at, end_at)
+
+
 @app.get("/api/v1/audit-logs", response_model=AuditListResponse)
 def list_audit_logs(
     current_user: dict[str, object] = Depends(require_permission("can_manage_users")),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=100),
     q: str = Query(default=""),
-    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log"] = Query(default="all"),
+    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log", "alert"] = Query(default="all"),
     action_filter: Literal["all", "create", "update", "delete"] = Query(default="all"),
     start_date: str = Query(default=""),
     end_date: str = Query(default=""),
@@ -780,7 +866,7 @@ def list_audit_logs(
 def export_audit_logs(
     current_user: dict[str, object] = Depends(require_permission("can_manage_users")),
     q: str = Query(default=""),
-    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log"] = Query(default="all"),
+    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log", "alert"] = Query(default="all"),
     action_filter: Literal["all", "create", "update", "delete"] = Query(default="all"),
     start_date: str = Query(default=""),
     end_date: str = Query(default=""),
@@ -1037,7 +1123,162 @@ def _work_order_with_machine_name(work_order: dict[str, object]) -> WorkOrder:
 def _failure_log_with_machine_name(failure_log: dict[str, object]) -> FailureLog:
     machine = machines_store.get(int(failure_log["machine_id"]))
     machine_name = machine["name"] if machine else "Unknown Machine"
-    return FailureLog(**failure_log, machine_name=machine_name)
+    severity = str(failure_log.get("severity", "medium")).lower()
+    if severity not in {"low", "medium", "high", "critical"}:
+        severity = "medium"
+
+    response_target, resolution_target = _sla_targets_by_severity(severity)
+    sla_status = _compute_failure_log_sla_status(
+        occurred_at=str(failure_log.get("occurred_at", "")),
+        response_started_at=str(failure_log.get("response_started_at", "")) if failure_log.get("response_started_at") else None,
+        resolved_at=str(failure_log.get("resolved_at", "")) if failure_log.get("resolved_at") else None,
+        response_target_hours=response_target,
+        resolution_target_hours=resolution_target,
+    )
+
+    return FailureLog(
+        **failure_log,
+        severity=severity,
+        machine_name=machine_name,
+        response_started_at=str(failure_log.get("response_started_at")) if failure_log.get("response_started_at") else None,
+        resolved_at=str(failure_log.get("resolved_at")) if failure_log.get("resolved_at") else None,
+        sla_response_target_hours=response_target,
+        sla_resolution_target_hours=resolution_target,
+        sla_status=sla_status,
+    )
+
+
+def _sla_targets_by_severity(severity: str) -> tuple[int, int]:
+    targets = {
+        "low": (24, 72),
+        "medium": (8, 24),
+        "high": (4, 12),
+        "critical": (1, 4),
+    }
+    return targets.get(severity, targets["medium"])
+
+
+def _compute_failure_log_sla_status(
+    occurred_at: str,
+    response_started_at: str | None,
+    resolved_at: str | None,
+    response_target_hours: int,
+    resolution_target_hours: int,
+) -> Literal["open", "at_risk", "breached", "met"]:
+    occurred = _safe_parse_datetime(occurred_at)
+    response_deadline = occurred + timedelta(hours=response_target_hours)
+    resolution_deadline = occurred + timedelta(hours=resolution_target_hours)
+    now = datetime.now(timezone.utc)
+
+    response_time = _safe_parse_datetime(response_started_at) if response_started_at else None
+    resolved_time = _safe_parse_datetime(resolved_at) if resolved_at else None
+
+    response_breached = response_time is None and now > response_deadline
+    if response_time is not None and response_time > response_deadline:
+        response_breached = True
+
+    resolution_breached = resolved_time is None and now > resolution_deadline
+    if resolved_time is not None and resolved_time > resolution_deadline:
+        resolution_breached = True
+
+    if response_breached or resolution_breached:
+        return "breached"
+
+    if resolved_time is not None:
+        return "met"
+
+    if now >= (resolution_deadline - timedelta(hours=2)):
+        return "at_risk"
+
+    return "open"
+
+
+def _line_bucket_for_machine(machine: dict[str, object] | None) -> str:
+    if machine is None:
+        return "Unknown"
+    machine_code = str(machine.get("machine_code", ""))
+    parts = machine_code.split("-")
+    if len(parts) >= 2 and parts[1].strip():
+        return parts[1].strip().upper()
+    return "UNASSIGNED"
+
+
+def _build_reliability_report(start_at: datetime, end_at: datetime) -> ReliabilityReport:
+    failures = [
+        item
+        for item in failure_logs_store.list()
+        if start_at <= _safe_parse_datetime(str(item.get("occurred_at", ""))) <= end_at
+    ]
+    failures.sort(key=lambda item: _safe_parse_datetime(str(item.get("occurred_at", ""))))
+
+    total_downtime = round(sum(float(item.get("downtime_hours", 0)) for item in failures), 2)
+    total_repair_cost = round(sum(float(item.get("repair_cost", 0)) for item in failures), 2)
+
+    period_hours = max(1.0, (end_at - start_at).total_seconds() / 3600)
+    failure_count = len(failures)
+    mtbf_hours = round(period_hours / failure_count, 2) if failure_count > 0 else round(period_hours, 2)
+    mttr_hours = round(total_downtime / failure_count, 2) if failure_count > 0 else 0.0
+
+    machine_stats: dict[int, dict[str, object]] = {}
+    line_stats: dict[str, dict[str, object]] = {}
+    for item in failures:
+        machine_id = int(item.get("machine_id", 0))
+        machine = machines_store.get(machine_id)
+        machine_name = str(machine.get("name", "Unknown Machine")) if machine else "Unknown Machine"
+        line_name = _line_bucket_for_machine(machine)
+
+        row = machine_stats.setdefault(
+            machine_id,
+            {
+                "machine_id": machine_id,
+                "machine_name": machine_name,
+                "failure_count": 0,
+                "downtime_hours": 0.0,
+                "repair_cost": 0.0,
+            },
+        )
+        row["failure_count"] = int(row["failure_count"]) + 1
+        row["downtime_hours"] = float(row["downtime_hours"]) + float(item.get("downtime_hours", 0))
+        row["repair_cost"] = float(row["repair_cost"]) + float(item.get("repair_cost", 0))
+
+        line_row = line_stats.setdefault(
+            line_name,
+            {"line_name": line_name, "failure_count": 0, "downtime_hours": 0.0},
+        )
+        line_row["failure_count"] = int(line_row["failure_count"]) + 1
+        line_row["downtime_hours"] = float(line_row["downtime_hours"]) + float(item.get("downtime_hours", 0))
+
+    downtime_by_machine = [
+        MachineDowntimeStat(
+            machine_id=int(row["machine_id"]),
+            machine_name=str(row["machine_name"]),
+            failure_count=int(row["failure_count"]),
+            downtime_hours=round(float(row["downtime_hours"]), 2),
+            repair_cost=round(float(row["repair_cost"]), 2),
+        )
+        for row in sorted(machine_stats.values(), key=lambda item: float(item["downtime_hours"]), reverse=True)
+    ]
+    downtime_by_line = [
+        LineDowntimeStat(
+            line_name=str(row["line_name"]),
+            failure_count=int(row["failure_count"]),
+            downtime_hours=round(float(row["downtime_hours"]), 2),
+        )
+        for row in sorted(line_stats.values(), key=lambda item: float(item["downtime_hours"]), reverse=True)
+    ]
+
+    return ReliabilityReport(
+        start_date=start_at.date().isoformat(),
+        end_date=end_at.date().isoformat(),
+        period_days=max(1, (end_at.date() - start_at.date()).days + 1),
+        failure_count=failure_count,
+        total_downtime_hours=total_downtime,
+        total_repair_cost=total_repair_cost,
+        mtbf_hours=mtbf_hours,
+        mttr_hours=mttr_hours,
+        downtime_by_machine=downtime_by_machine,
+        downtime_by_line=downtime_by_line,
+    )
 
 
 def _safe_parse_datetime(raw: str) -> datetime:
@@ -1072,6 +1313,140 @@ def _next_auto_work_order_code() -> str:
         if candidate.upper() not in existing_codes:
             return candidate
         index += 1
+
+
+def _is_plan_overdue(next_due: str) -> bool:
+    return "overdue" in next_due.strip().lower()
+
+
+def _sort_alerts(items: list[dict[str, object]]) -> list[dict[str, object]]:
+    severity_rank = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+    return sorted(
+        items,
+        key=lambda item: (
+            -severity_rank.get(str(item.get("severity", "low")), 1),
+            _safe_parse_datetime(str(item.get("triggered_at", ""))),
+        ),
+        reverse=True,
+    )
+
+
+def _build_alert_candidates() -> list[dict[str, object]]:
+    alerts: list[dict[str, object]] = []
+
+    recent_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    failures = [
+        item
+        for item in failure_logs_store.list()
+        if _safe_parse_datetime(str(item.get("occurred_at", ""))) >= recent_cutoff
+    ]
+    failures_by_machine: dict[int, list[dict[str, object]]] = {}
+    for item in failures:
+        machine_id = int(item.get("machine_id", 0))
+        if machine_id <= 0:
+            continue
+        failures_by_machine.setdefault(machine_id, []).append(item)
+
+    for machine_id, machine_failures in failures_by_machine.items():
+        if len(machine_failures) < 2:
+            continue
+
+        machine = machines_store.get(machine_id)
+        machine_name = str(machine["name"]) if machine else "Unknown Machine"
+        latest = max(machine_failures, key=lambda row: _safe_parse_datetime(str(row.get("occurred_at", ""))))
+        latest_cause = str(latest.get("root_cause", "unknown cause"))
+
+        alerts.append(
+            {
+                "id": f"repeat-failure-machine-{machine_id}",
+                "rule_type": "repeat_failure",
+                "severity": "high",
+                "title": f"Repeated failures on {machine_name}",
+                "description": f"{len(machine_failures)} failures in the last 7 days. Latest cause: {latest_cause}",
+                "triggered_at": str(latest.get("occurred_at", datetime.now(timezone.utc).isoformat())),
+                "machine_id": machine_id,
+                "machine_name": machine_name,
+                "plan_id": None,
+                "batch_id": None,
+            }
+        )
+
+    for plan in plans_store.list():
+        if not bool(plan.get("is_active", True)):
+            continue
+        if not _is_plan_overdue(str(plan.get("next_due", ""))):
+            continue
+
+        machine = machines_store.get(int(plan.get("machine_id", 0)))
+        machine_name = str(machine["name"]) if machine else "Unknown Machine"
+        alerts.append(
+            {
+                "id": f"overdue-plan-{int(plan.get('id', 0))}",
+                "rule_type": "overdue_plan",
+                "severity": "medium",
+                "title": f"Overdue maintenance plan: {plan.get('plan_code', 'Unknown')}",
+                "description": f"Plan '{plan.get('title', '')}' is overdue for machine {machine_name}.",
+                "triggered_at": datetime.now(timezone.utc).isoformat(),
+                "machine_id": int(plan.get("machine_id", 0)),
+                "machine_name": machine_name,
+                "plan_id": int(plan.get("id", 0)),
+                "batch_id": None,
+            }
+        )
+
+    for batch in import_history_store.list():
+        if bool(batch.get("dry_run", False)):
+            continue
+        summary = dict(batch.get("summary", {}))
+        skipped_rows = int(summary.get("skipped_rows", 0))
+        rollback_applied = bool(batch.get("rollback_applied", False))
+        if skipped_rows <= 0 and not rollback_applied:
+            continue
+
+        batch_id = str(batch.get("batch_id", ""))
+        alerts.append(
+            {
+                "id": f"import-issue-{batch_id}",
+                "rule_type": "import_issue",
+                "severity": "medium",
+                "title": "Master data import needs attention",
+                "description": f"Batch {batch_id} had {skipped_rows} skipped rows; rollback_applied={str(rollback_applied).lower()}.",
+                "triggered_at": str(batch.get("created_at", datetime.now(timezone.utc).isoformat())),
+                "machine_id": None,
+                "machine_name": None,
+                "plan_id": None,
+                "batch_id": batch_id,
+            }
+        )
+
+    return _sort_alerts(alerts)
+
+
+def _decorate_alerts_with_state(alerts: list[dict[str, object]]) -> list[AlertItem]:
+    state_by_id = {str(row.get("id", "")): row for row in alerts_store.list()}
+    result: list[AlertItem] = []
+    for alert in alerts:
+        alert_id = str(alert["id"])
+        state = state_by_id.get(alert_id)
+        acknowledged = bool(state and state.get("acknowledged", False))
+        result.append(
+            AlertItem(
+                id=alert_id,
+                rule_type=str(alert["rule_type"]),
+                severity=str(alert["severity"]),
+                title=str(alert["title"]),
+                description=str(alert["description"]),
+                triggered_at=str(alert["triggered_at"]),
+                status="acknowledged" if acknowledged else "open",
+                machine_id=int(alert["machine_id"]) if alert.get("machine_id") is not None else None,
+                machine_name=str(alert["machine_name"]) if alert.get("machine_name") else None,
+                plan_id=int(alert["plan_id"]) if alert.get("plan_id") is not None else None,
+                batch_id=str(alert["batch_id"]) if alert.get("batch_id") else None,
+                acknowledged_at=str(state.get("acknowledged_at")) if state and state.get("acknowledged_at") else None,
+                acknowledged_by=str(state.get("acknowledged_by")) if state and state.get("acknowledged_by") else None,
+            )
+        )
+    return result
 
 
 def _plan_with_machine_name(plan: dict[str, object]) -> Plan:
@@ -1118,7 +1493,7 @@ def write_audit_event(
 
 def _filter_sort_audit_events(
     q: str,
-    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log"],
+    entity_type: Literal["all", "user", "role", "machine", "plan", "work_order", "department", "line", "station", "master_import", "failure_log", "alert"],
     action_filter: Literal["all", "create", "update", "delete"],
     start_at: datetime | None,
     end_at: datetime | None,
@@ -1852,6 +2227,75 @@ def list_failure_logs(current_user: dict[str, object] = Depends(get_current_user
     return [_failure_log_with_machine_name(row) for row in rows]
 
 
+@app.get("/api/v1/failure-logs/export", response_model=list[FailureLog])
+def export_failure_logs(
+    current_user: dict[str, object] = Depends(get_current_user),
+    start_date: str = Query(default=""),
+    end_date: str = Query(default=""),
+    sla_status: Literal["all", "open", "at_risk", "breached", "met"] = Query(default="all"),
+) -> list[FailureLog]:
+    rows = [_failure_log_with_machine_name(row) for row in failure_logs_store.list()]
+    start_at = _parse_date_param(start_date, is_end=False)
+    end_at = _parse_date_param(end_date, is_end=True)
+
+    filtered = []
+    for row in rows:
+        occurred_at = _safe_parse_datetime(row.occurred_at)
+        if start_at is not None and occurred_at < start_at:
+            continue
+        if end_at is not None and occurred_at > end_at:
+            continue
+        if sla_status != "all" and row.sla_status != sla_status:
+            continue
+        filtered.append(row)
+
+    filtered.sort(key=lambda row: _safe_parse_datetime(row.occurred_at), reverse=True)
+    return filtered
+
+
+@app.get("/api/v1/alerts", response_model=list[AlertItem])
+def list_alerts(
+    current_user: dict[str, object] = Depends(get_current_user),
+    status_filter: Literal["all", "open", "acknowledged"] = Query(default="all"),
+) -> list[AlertItem]:
+    items = _decorate_alerts_with_state(_build_alert_candidates())
+    if status_filter == "open":
+        return [item for item in items if item.status == "open"]
+    if status_filter == "acknowledged":
+        return [item for item in items if item.status == "acknowledged"]
+    return items
+
+
+@app.post("/api/v1/alerts/{alert_id}/acknowledge", response_model=AlertItem)
+def acknowledge_alert(
+    alert_id: str,
+    current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
+) -> AlertItem:
+    candidates = _build_alert_candidates()
+    target = next((row for row in candidates if str(row.get("id", "")) == alert_id), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    state = alerts_store.acknowledge(alert_id, str(current_user["email"]))
+    write_audit_event(current_user, "alert", alert_id, "update", f"Acknowledged alert '{alert_id}'")
+
+    return AlertItem(
+        id=str(target["id"]),
+        rule_type=str(target["rule_type"]),
+        severity=str(target["severity"]),
+        title=str(target["title"]),
+        description=str(target["description"]),
+        triggered_at=str(target["triggered_at"]),
+        status="acknowledged",
+        machine_id=int(target["machine_id"]) if target.get("machine_id") is not None else None,
+        machine_name=str(target["machine_name"]) if target.get("machine_name") else None,
+        plan_id=int(target["plan_id"]) if target.get("plan_id") is not None else None,
+        batch_id=str(target["batch_id"]) if target.get("batch_id") else None,
+        acknowledged_at=str(state.get("acknowledged_at")),
+        acknowledged_by=str(state.get("acknowledged_by")),
+    )
+
+
 @app.post("/api/v1/failure-logs", response_model=FailureLog, status_code=status.HTTP_201_CREATED)
 def create_failure_log(
     payload: FailureLogCreate,
@@ -1867,6 +2311,7 @@ def create_failure_log(
         {
             "machine_id": payload.machine_id,
             "occurred_at": occurred_at,
+            "severity": payload.severity,
             "downtime_hours": payload.downtime_hours,
             "repair_cost": payload.repair_cost,
             "root_cause": payload.root_cause,
@@ -1894,4 +2339,39 @@ def delete_failure_log(
 
     write_audit_event(current_user, "failure_log", str(failure_log_id), "delete", f"Deleted failure log id {failure_log_id}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.patch("/api/v1/failure-logs/{failure_log_id}/sla", response_model=FailureLog)
+def update_failure_log_sla(
+    failure_log_id: int,
+    payload: FailureLogSlaUpdate,
+    current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
+) -> FailureLog:
+    existing = failure_logs_store.get(failure_log_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Failure log not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+    if "response_started_at" in updates and updates["response_started_at"]:
+        updates["response_started_at"] = _safe_parse_datetime(str(updates["response_started_at"])).isoformat()
+    if "resolved_at" in updates and updates["resolved_at"]:
+        updates["resolved_at"] = _safe_parse_datetime(str(updates["resolved_at"])).isoformat()
+
+    updated = failure_logs_store.update(failure_log_id, updates)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Failure log not found")
+
+    write_audit_event(current_user, "failure_log", str(failure_log_id), "update", f"Updated SLA metadata for failure log {failure_log_id}")
+    return _failure_log_with_machine_name(updated)
+
+
+@app.get("/api/v1/failure-logs/sla-summary", response_model=FailureLogSlaSummary)
+def failure_log_sla_summary(current_user: dict[str, object] = Depends(get_current_user)) -> FailureLogSlaSummary:
+    rows = [_failure_log_with_machine_name(item) for item in failure_logs_store.list()]
+    return FailureLogSlaSummary(
+        open_alerts=len([row for row in rows if row.sla_status == "open"]),
+        at_risk=len([row for row in rows if row.sla_status == "at_risk"]),
+        breached=len([row for row in rows if row.sla_status == "breached"]),
+        met=len([row for row in rows if row.sla_status == "met"]),
+    )
 

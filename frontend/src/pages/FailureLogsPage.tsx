@@ -3,11 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   createFailureLog,
   deleteFailureLog,
+  fetchFailureLogSlaSummary,
   fetchFailureLogs,
   fetchMachines,
+  updateFailureLogSla,
 } from "../lib/api";
 import { canManageAssets } from "../lib/permissions";
-import type { AuthUser, FailureLog, Machine } from "../lib/types";
+import type { AuthUser, FailureLog, FailureLogSlaSummary, Machine } from "../lib/types";
 
 type FailureLogsPageProps = {
   currentUser: AuthUser;
@@ -16,11 +18,13 @@ type FailureLogsPageProps = {
 export function FailureLogsPage({ currentUser }: FailureLogsPageProps) {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [logs, setLogs] = useState<FailureLog[]>([]);
+  const [slaSummary, setSlaSummary] = useState<FailureLogSlaSummary>({ open_alerts: 0, at_risk: 0, breached: 0, met: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [machineId, setMachineId] = useState<number>(0);
   const [occurredAt, setOccurredAt] = useState("");
+  const [severity, setSeverity] = useState<"low" | "medium" | "high" | "critical">("medium");
   const [downtimeHours, setDowntimeHours] = useState("1.0");
   const [repairCost, setRepairCost] = useState("0");
   const [rootCause, setRootCause] = useState("");
@@ -31,12 +35,14 @@ export function FailureLogsPage({ currentUser }: FailureLogsPageProps) {
   async function loadAll() {
     try {
       setIsLoading(true);
-      const [logsData, machineData] = await Promise.all([
+      const [logsData, machineData, slaData] = await Promise.all([
         fetchFailureLogs(),
         fetchMachines(1, 200),
+        fetchFailureLogSlaSummary(),
       ]);
       setLogs(logsData);
       setMachines(machineData.items);
+      setSlaSummary(slaData);
       if (machineData.items.length > 0 && machineId <= 0) {
         setMachineId(machineData.items[0].id);
       }
@@ -76,12 +82,14 @@ export function FailureLogsPage({ currentUser }: FailureLogsPageProps) {
       await createFailureLog({
         machine_id: machineId,
         occurred_at: occurredAt,
+        severity,
         downtime_hours: Number(downtimeHours),
         repair_cost: Number(repairCost),
         root_cause: rootCause.trim(),
         notes: notes.trim(),
       });
       setOccurredAt("");
+      setSeverity("medium");
       setDowntimeHours("1.0");
       setRepairCost("0");
       setRootCause("");
@@ -106,6 +114,30 @@ export function FailureLogsPage({ currentUser }: FailureLogsPageProps) {
       await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete failure log.");
+    }
+  }
+
+  async function handleMarkResponseStarted(failureLogId: number) {
+    if (!canEdit) {
+      return;
+    }
+    try {
+      await updateFailureLogSla(failureLogId, { response_started_at: new Date().toISOString() });
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update response start.");
+    }
+  }
+
+  async function handleMarkResolved(failureLogId: number) {
+    if (!canEdit) {
+      return;
+    }
+    try {
+      await updateFailureLogSla(failureLogId, { resolved_at: new Date().toISOString() });
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to mark failure as resolved.");
     }
   }
 
@@ -135,6 +167,11 @@ export function FailureLogsPage({ currentUser }: FailureLogsPageProps) {
           <p className="metric-value">INR {totals.cost.toLocaleString()}</p>
           <p className="metric-hint">Total recorded repair spend</p>
         </article>
+        <article className="metric-card">
+          <p className="metric-title">SLA Breached</p>
+          <p className="metric-value">{slaSummary.breached}</p>
+          <p className="metric-hint">Failure events outside SLA</p>
+        </article>
       </div>
 
       <div className="inline-form-card">
@@ -154,6 +191,15 @@ export function FailureLogsPage({ currentUser }: FailureLogsPageProps) {
           <label>
             Occurred At
             <input type="datetime-local" value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} />
+          </label>
+          <label>
+            Severity
+            <select value={severity} onChange={(event) => setSeverity(event.target.value as typeof severity)}>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
           </label>
           <label>
             Downtime (hours)
@@ -184,6 +230,8 @@ export function FailureLogsPage({ currentUser }: FailureLogsPageProps) {
               <th>ID</th>
               <th>Occurred At</th>
               <th>Machine</th>
+              <th>Severity</th>
+              <th>SLA</th>
               <th>Downtime</th>
               <th>Repair Cost</th>
               <th>Root Cause</th>
@@ -194,7 +242,7 @@ export function FailureLogsPage({ currentUser }: FailureLogsPageProps) {
           <tbody>
             {logs.length === 0 && (
               <tr>
-                <td colSpan={8}>No failure logs available.</td>
+                <td colSpan={10}>No failure logs available.</td>
               </tr>
             )}
             {logs.map((log) => (
@@ -202,11 +250,29 @@ export function FailureLogsPage({ currentUser }: FailureLogsPageProps) {
                 <td>{log.id}</td>
                 <td>{new Date(log.occurred_at).toLocaleString()}</td>
                 <td>{log.machine_name}</td>
+                <td>{log.severity}</td>
+                <td>{log.sla_status.replace("_", " ")}</td>
                 <td>{log.downtime_hours}</td>
                 <td>{Math.round(log.repair_cost).toLocaleString()}</td>
                 <td>{log.root_cause}</td>
                 <td>{log.notes || "-"}</td>
                 <td>
+                  <button
+                    className="ghost-btn"
+                    type="button"
+                    onClick={() => handleMarkResponseStarted(log.id)}
+                    disabled={!canEdit || Boolean(log.response_started_at)}
+                  >
+                    Start Response
+                  </button>
+                  <button
+                    className="ghost-btn"
+                    type="button"
+                    onClick={() => handleMarkResolved(log.id)}
+                    disabled={!canEdit || Boolean(log.resolved_at)}
+                  >
+                    Resolve
+                  </button>
                   <button className="ghost-btn" type="button" onClick={() => handleDeleteFailureLog(log.id)} disabled={!canEdit}>
                     Delete
                   </button>

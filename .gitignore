@@ -34,6 +34,7 @@ Thumbs.db
 
 # Runtime / logs
 *.log
+backend/data/alerts_state.json
 
 # Backups and generated artifacts
 backups/

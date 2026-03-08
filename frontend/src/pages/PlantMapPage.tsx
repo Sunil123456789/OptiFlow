@@ -40,6 +40,15 @@ type PlantMapPageProps = {
 
 const REQUIRED_HEADERS = ["entity_type", "code", "name", "parent_code", "is_active"];
 
+function confirmDangerousAction(message: string, token: string): boolean {
+  const approved = window.confirm(message);
+  if (!approved) {
+    return false;
+  }
+  const typed = window.prompt(`Type ${token} to confirm:`);
+  return (typed ?? "").trim().toUpperCase() === token;
+}
+
 type CsvValidationResult = {
   errors: string[];
   rowCount: number;
@@ -392,7 +401,7 @@ export function PlantMapPage({ currentUser }: PlantMapPageProps) {
   }
 
   async function handleDeleteDepartment(code: string) {
-    const approved = window.confirm(`Delete department ${code}?`);
+    const approved = confirmDangerousAction(`Delete department ${code}? This cannot be undone from UI.`, "DELETE");
     if (!approved) {
       return;
     }
@@ -405,7 +414,7 @@ export function PlantMapPage({ currentUser }: PlantMapPageProps) {
   }
 
   async function handleDeleteLine(code: string) {
-    const approved = window.confirm(`Delete line ${code}?`);
+    const approved = confirmDangerousAction(`Delete line ${code}? This cannot be undone from UI.`, "DELETE");
     if (!approved) {
       return;
     }
@@ -418,7 +427,7 @@ export function PlantMapPage({ currentUser }: PlantMapPageProps) {
   }
 
   async function handleDeleteStation(code: string) {
-    const approved = window.confirm(`Delete station ${code}?`);
+    const approved = confirmDangerousAction(`Delete station ${code}? This cannot be undone from UI.`, "DELETE");
     if (!approved) {
       return;
     }
@@ -467,7 +476,7 @@ export function PlantMapPage({ currentUser }: PlantMapPageProps) {
   }
 
   async function handleRollback(batchId: string) {
-    const approved = window.confirm(`Rollback import batch ${batchId}?`);
+    const approved = confirmDangerousAction(`Rollback import batch ${batchId}? This will attempt to revert applied mapping changes.`, "ROLLBACK");
     if (!approved) {
       return;
     }

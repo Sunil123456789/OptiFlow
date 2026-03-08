@@ -30,7 +30,7 @@ export function AuditLogsPage({ currentUser }: AuditLogsPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [entityType, setEntityType] = useState<
-    "all" | "user" | "role" | "machine" | "plan" | "work_order" | "department" | "line" | "station" | "master_import"
+    "all" | "user" | "role" | "machine" | "plan" | "work_order" | "department" | "line" | "station" | "master_import" | "failure_log" | "alert"
   >("all");
   const [actionFilter, setActionFilter] = useState<"all" | "create" | "update" | "delete">("all");
   const [startDate, setStartDate] = useState("");
@@ -174,6 +174,8 @@ export function AuditLogsPage({ currentUser }: AuditLogsPageProps) {
           <option value="line">Line</option>
           <option value="station">Station</option>
           <option value="master_import">Master Import</option>
+          <option value="failure_log">Failure Log</option>
+          <option value="alert">Alert</option>
         </select>
         <select value={actionFilter} onChange={(e) => setActionFilter(e.target.value as typeof actionFilter)}>
           <option value="all">All Actions</option>

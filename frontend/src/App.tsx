@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Header } from "./components/Header";
-import { clearSession, fetchDashboardSummary, fetchMe, getStoredToken } from "./lib/api";
+import { clearSession, fetchAlerts, fetchDashboardSummary, fetchMe, getStoredToken } from "./lib/api";
 import { canManageAssets, canManageUsers } from "./lib/permissions";
 import type { AuthUser, DashboardSummary } from "./lib/types";
+import { AlertsPage } from "./pages/AlertsPage";
 import { AuditLogsPage } from "./pages/AuditLogsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MachinesPage } from "./pages/MachinesPage";
@@ -10,6 +11,7 @@ import { OverviewPage } from "./pages/OverviewPage";
 import { FailureLogsPage } from "./pages/FailureLogsPage";
 import { PlantMapPage } from "./pages/PlantMapPage";
 import { PlansPage } from "./pages/PlansPage";
+import { ReportsPage } from "./pages/ReportsPage";
 import { UsersPage } from "./pages/UsersPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
 
@@ -18,6 +20,7 @@ export function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [openAlertCount, setOpenAlertCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -92,6 +95,35 @@ export function App() {
   }, [currentUser]);
 
   useEffect(() => {
+    if (!currentUser) {
+      setOpenAlertCount(0);
+      return;
+    }
+
+    let mounted = true;
+
+    async function loadOpenAlerts() {
+      try {
+        const rows = await fetchAlerts("open");
+        if (mounted) {
+          setOpenAlertCount(rows.length);
+        }
+      } catch {
+        if (mounted) {
+          setOpenAlertCount(0);
+        }
+      }
+    }
+
+    loadOpenAlerts();
+    const timer = window.setInterval(loadOpenAlerts, 60_000);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, [currentUser]);
+
+  useEffect(() => {
     if ((activeTab === "Users" || activeTab === "Audit Logs") && currentUser && !canManageUsers(currentUser)) {
       setActiveTab("Overview");
     }
@@ -109,6 +141,7 @@ export function App() {
     clearSession();
     setCurrentUser(null);
     setSummary(null);
+    setOpenAlertCount(0);
     setError(null);
     setActiveTab("Overview");
   }
@@ -121,6 +154,9 @@ export function App() {
     if (activeTab === "Machines") {
       return <MachinesPage currentUser={currentUser} />;
     }
+    if (activeTab === "Alerts") {
+      return <AlertsPage currentUser={currentUser} onAlertsChanged={setOpenAlertCount} />;
+    }
     if (activeTab === "Plans") {
       return <PlansPage currentUser={currentUser} />;
     }
@@ -129,6 +165,9 @@ export function App() {
     }
     if (activeTab === "Failure Logs") {
       return <FailureLogsPage currentUser={currentUser} />;
+    }
+    if (activeTab === "Reports") {
+      return <ReportsPage currentUser={currentUser} />;
     }
     if (activeTab === "Plant Map") {
       return <PlantMapPage currentUser={currentUser} />;
@@ -177,6 +216,7 @@ export function App() {
           onTabChange={setActiveTab}
           currentUser={currentUser}
           onLogout={handleLogout}
+          openAlertCount={openAlertCount}
         />
         {page}
       </main>

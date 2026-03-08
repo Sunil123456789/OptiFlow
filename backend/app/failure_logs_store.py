@@ -71,6 +71,16 @@ class FailureLogsStore:
             self._write(failures)
             return item
 
+    def update(self, failure_id: int, updates: dict[str, Any]) -> dict[str, Any] | None:
+        with self._lock:
+            failures = self._read()
+            for index, row in enumerate(failures):
+                if int(row["id"]) == failure_id:
+                    failures[index] = {**row, **updates}
+                    self._write(failures)
+                    return failures[index]
+            return None
+
     def delete(self, failure_id: int) -> bool:
         with self._lock:
             failures = self._read()

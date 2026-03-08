@@ -1,10 +1,12 @@
 ﻿import type {
+  AlertItem,
   AutoGenerateWorkOrdersResult,
   AuditLog,
   AuthUser,
   DashboardSummary,
   Department,
   FailureLog,
+  FailureLogSlaSummary,
   RollbackResult,
   KpiTrendPoint,
   Line,
@@ -15,6 +17,7 @@
   PaginatedResponse,
   PlantIntegrityReport,
   RoleDefinition,
+  ReliabilityReport,
   RolePermissions,
   Station,
   UserRecord,
@@ -53,7 +56,7 @@ type WorkOrderListOptions = {
 
 type AuditLogListOptions = {
   q?: string;
-  entityType?: "all" | "user" | "role" | "machine" | "plan" | "work_order" | "department" | "line" | "station" | "master_import" | "failure_log";
+  entityType?: "all" | "user" | "role" | "machine" | "plan" | "work_order" | "department" | "line" | "station" | "master_import" | "failure_log" | "alert";
   actionFilter?: "all" | "create" | "update" | "delete";
   startDate?: string;
   endDate?: string;
@@ -276,6 +279,19 @@ export async function fetchKpiTrends(days = 14): Promise<KpiTrendPoint[]> {
   return fetchAuthed<KpiTrendPoint[]>(`/dashboard/kpi-trends?${params.toString()}`);
 }
 
+export async function exportKpiTrends(days = 30): Promise<KpiTrendPoint[]> {
+  const params = new URLSearchParams({ days: String(days) });
+  return fetchAuthed<KpiTrendPoint[]>(`/dashboard/kpi-trends/export?${params.toString()}`);
+}
+
+export async function fetchReliabilityReport(options: { startDate?: string; endDate?: string }): Promise<ReliabilityReport> {
+  const params = new URLSearchParams({
+    start_date: options.startDate ?? "",
+    end_date: options.endDate ?? "",
+  });
+  return fetchAuthed<ReliabilityReport>(`/reports/reliability?${params.toString()}`);
+}
+
 export async function fetchAuditLogsWithOptions(
   page = 1,
   pageSize = 10,
@@ -485,15 +501,53 @@ export async function fetchFailureLogs(): Promise<FailureLog[]> {
   return fetchAuthed<FailureLog[]>("/failure-logs");
 }
 
+export async function exportFailureLogs(options: {
+  startDate?: string;
+  endDate?: string;
+  slaStatus?: "all" | "open" | "at_risk" | "breached" | "met";
+}): Promise<FailureLog[]> {
+  const params = new URLSearchParams({
+    start_date: options.startDate ?? "",
+    end_date: options.endDate ?? "",
+    sla_status: options.slaStatus ?? "all",
+  });
+  return fetchAuthed<FailureLog[]>(`/failure-logs/export?${params.toString()}`);
+}
+
+export async function fetchAlerts(statusFilter: "all" | "open" | "acknowledged" = "all"): Promise<AlertItem[]> {
+  const params = new URLSearchParams({ status_filter: statusFilter });
+  return fetchAuthed<AlertItem[]>(`/alerts?${params.toString()}`);
+}
+
+export async function acknowledgeAlert(alertId: string): Promise<AlertItem> {
+  return postAuthed<AlertItem, Record<string, never>>(`/alerts/${encodeURIComponent(alertId)}/acknowledge`, {});
+}
+
 export async function createFailureLog(payload: {
   machine_id: number;
   occurred_at: string;
+  severity?: "low" | "medium" | "high" | "critical";
   downtime_hours: number;
   repair_cost: number;
   root_cause: string;
   notes?: string;
 }): Promise<FailureLog> {
   return postAuthed<FailureLog, typeof payload>("/failure-logs", payload);
+}
+
+export async function updateFailureLogSla(
+  failureLogId: number,
+  payload: Partial<{
+    severity: "low" | "medium" | "high" | "critical";
+    response_started_at: string | null;
+    resolved_at: string | null;
+  }>
+): Promise<FailureLog> {
+  return patchAuthed<FailureLog, typeof payload>(`/failure-logs/${failureLogId}/sla`, payload);
+}
+
+export async function fetchFailureLogSlaSummary(): Promise<FailureLogSlaSummary> {
+  return fetchAuthed<FailureLogSlaSummary>("/failure-logs/sla-summary");
 }
 
 export async function deleteFailureLog(failureLogId: number): Promise<void> {

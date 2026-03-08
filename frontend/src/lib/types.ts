@@ -14,6 +14,22 @@ export type KpiTrendPoint = {
   repair_cost: number;
 };
 
+export type AlertItem = {
+  id: string;
+  rule_type: "repeat_failure" | "overdue_plan" | "import_issue";
+  severity: "low" | "medium" | "high" | "critical";
+  title: string;
+  description: string;
+  triggered_at: string;
+  status: "open" | "acknowledged";
+  machine_id?: number | null;
+  machine_name?: string | null;
+  plan_id?: number | null;
+  batch_id?: string | null;
+  acknowledged_at?: string | null;
+  acknowledged_by?: string | null;
+};
+
 export type RolePermissions = {
   can_manage_users: boolean;
   can_manage_assets: boolean;
@@ -71,10 +87,50 @@ export type FailureLog = {
   machine_id: number;
   machine_name: string;
   occurred_at: string;
+  severity: "low" | "medium" | "high" | "critical";
   downtime_hours: number;
   repair_cost: number;
   root_cause: string;
   notes: string;
+  response_started_at?: string | null;
+  resolved_at?: string | null;
+  sla_response_target_hours: number;
+  sla_resolution_target_hours: number;
+  sla_status: "open" | "at_risk" | "breached" | "met";
+};
+
+export type FailureLogSlaSummary = {
+  open_alerts: number;
+  at_risk: number;
+  breached: number;
+  met: number;
+};
+
+export type MachineDowntimeStat = {
+  machine_id: number;
+  machine_name: string;
+  failure_count: number;
+  downtime_hours: number;
+  repair_cost: number;
+};
+
+export type LineDowntimeStat = {
+  line_name: string;
+  failure_count: number;
+  downtime_hours: number;
+};
+
+export type ReliabilityReport = {
+  start_date: string;
+  end_date: string;
+  period_days: number;
+  failure_count: number;
+  total_downtime_hours: number;
+  total_repair_cost: number;
+  mtbf_hours: number;
+  mttr_hours: number;
+  downtime_by_machine: MachineDowntimeStat[];
+  downtime_by_line: LineDowntimeStat[];
 };
 
 export type AutoGenerateWorkOrdersResult = {
@@ -122,7 +178,8 @@ export type AuditLog = {
     | "line"
     | "station"
     | "master_import"
-    | "failure_log";
+    | "failure_log"
+    | "alert";
   entity_id: string;
   action: "create" | "update" | "delete";
   summary: string;
