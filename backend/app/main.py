@@ -1065,13 +1065,10 @@ def _failure_log_with_machine_name(failure_log: dict[str, object]) -> FailureLog
 def _safe_parse_datetime(raw: str) -> datetime:
     normalized = raw.strip()
     if not normalized:
-        return datetime.now(timezone.utc)
-    try:
-        return _parse_iso_datetime(normalized)
-    except ValueError:
-        return datetime.now(timezone.utc)
-
-
+        raise ValueError("Empty datetime string cannot be parsed.")
+    # Let ValueError from _parse_iso_datetime propagate so callers can
+    # handle invalid datetime input explicitly instead of defaulting to now.
+    return _parse_iso_datetime(normalized)
 def _plan_due_soon(next_due: str) -> bool:
     normalized = next_due.strip().lower()
     if not normalized:
