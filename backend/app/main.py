@@ -771,7 +771,10 @@ def dashboard_kpi_trends(
         buckets[key] = {"failures": 0, "downtime_hours": 0.0, "repair_cost": 0.0}
 
     for item in failures:
-        event_at = _safe_parse_datetime(str(item.get("occurred_at", "")))
+        try:
+            event_at = _safe_parse_datetime(str(item.get("occurred_at", "")))
+        except (ValueError, TypeError):
+            continue
         key = event_at.date().isoformat()
         if key not in buckets:
             continue
@@ -1880,7 +1883,13 @@ def auto_generate_work_orders(
 @app.get("/api/v1/failure-logs", response_model=list[FailureLog])
 def list_failure_logs(current_user: dict[str, object] = Depends(get_current_user)) -> list[FailureLog]:
     rows = failure_logs_store.list()
-    rows.sort(key=lambda row: _safe_parse_datetime(str(row.get("occurred_at", ""))), reverse=True)
+    def _sort_key(row: dict) -> datetime:
+        try:
+            return _safe_parse_datetime(str(row.get("occurred_at", "")))
+        except (ValueError, TypeError):
+            return datetime.min.replace(tzinfo=timezone.utc)
+
+    rows.sort(key=_sort_key, reverse=True)
     return [_failure_log_with_machine_name(row) for row in rows]
 
 
