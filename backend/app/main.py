@@ -121,7 +121,7 @@ class WorkOrder(WorkOrderBase):
 class FailureLogBase(BaseModel):
     machine_id: int = Field(gt=0)
     occurred_at: str = Field(min_length=10, max_length=40)
-    downtime_hours: float = Field(gt=0)
+    downtime_hours: float = Field(ge=0)
     repair_cost: float = Field(ge=0)
     root_cause: str = Field(min_length=3, max_length=200)
     notes: str = Field(default="", max_length=500)
