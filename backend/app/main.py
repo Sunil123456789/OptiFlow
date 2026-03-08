@@ -223,7 +223,7 @@ class KpiTrendPoint(BaseModel):
 
 class AlertItem(BaseModel):
     id: str
-    rule_type: Literal["repeat_failure", "overdue_plan", "import_issue"]
+    rule_type: Literal["repeat_failure", "overdue_plan", "import_issue", "low_stock"]
     severity: Literal["low", "medium", "high", "critical"]
     title: str
     description: str
@@ -1473,6 +1473,33 @@ def _build_alert_candidates() -> list[dict[str, object]]:
                 "machine_name": None,
                 "plan_id": None,
                 "batch_id": batch_id,
+            }
+        )
+
+    for part in spare_parts_store.list():
+        if not bool(part.get("is_active", True)):
+            continue
+        stock_qty = int(part.get("stock_qty", 0))
+        reorder_level = int(part.get("reorder_level", 0))
+        if stock_qty > reorder_level:
+            continue
+
+        part_id = int(part.get("id", 0))
+        part_code = str(part.get("part_code", "UNKNOWN"))
+        part_name = str(part.get("name", "Spare Part"))
+        severity = "critical" if stock_qty == 0 else "high"
+        alerts.append(
+            {
+                "id": f"low-stock-part-{part_id}",
+                "rule_type": "low_stock",
+                "severity": severity,
+                "title": f"Low stock: {part_code}",
+                "description": f"{part_name} is at {stock_qty} unit(s), reorder level is {reorder_level}.",
+                "triggered_at": datetime.now(timezone.utc).isoformat(),
+                "machine_id": None,
+                "machine_name": None,
+                "plan_id": None,
+                "batch_id": None,
             }
         )
 

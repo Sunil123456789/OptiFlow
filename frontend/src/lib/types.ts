@@ -16,7 +16,7 @@ export type KpiTrendPoint = {
 
 export type AlertItem = {
   id: string;
-  rule_type: "repeat_failure" | "overdue_plan" | "import_issue";
+  rule_type: "repeat_failure" | "overdue_plan" | "import_issue" | "low_stock";
   severity: "low" | "medium" | "high" | "critical";
   title: string;
   description: string;

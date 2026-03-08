@@ -66,7 +66,7 @@ export function AlertsPage({ currentUser, onAlertsChanged }: AlertsPageProps) {
     <section className="page">
       <div className="page-head">
         <h2>Alerts</h2>
-        <p>Operational alerts for repeated failures, overdue plans, and import issues.</p>
+        <p>Operational alerts for repeated failures, overdue plans, import issues, and low spare-part stock.</p>
       </div>
 
       <div className="metric-grid compact">
