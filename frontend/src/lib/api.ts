@@ -17,6 +17,7 @@
   PaginatedResponse,
   PlantIntegrityReport,
   RoleDefinition,
+  ReliabilityReport,
   RolePermissions,
   Station,
   UserRecord,
@@ -278,6 +279,19 @@ export async function fetchKpiTrends(days = 14): Promise<KpiTrendPoint[]> {
   return fetchAuthed<KpiTrendPoint[]>(`/dashboard/kpi-trends?${params.toString()}`);
 }
 
+export async function exportKpiTrends(days = 30): Promise<KpiTrendPoint[]> {
+  const params = new URLSearchParams({ days: String(days) });
+  return fetchAuthed<KpiTrendPoint[]>(`/dashboard/kpi-trends/export?${params.toString()}`);
+}
+
+export async function fetchReliabilityReport(options: { startDate?: string; endDate?: string }): Promise<ReliabilityReport> {
+  const params = new URLSearchParams({
+    start_date: options.startDate ?? "",
+    end_date: options.endDate ?? "",
+  });
+  return fetchAuthed<ReliabilityReport>(`/reports/reliability?${params.toString()}`);
+}
+
 export async function fetchAuditLogsWithOptions(
   page = 1,
   pageSize = 10,
@@ -485,6 +499,19 @@ export async function autoGenerateWorkOrders(): Promise<AutoGenerateWorkOrdersRe
 
 export async function fetchFailureLogs(): Promise<FailureLog[]> {
   return fetchAuthed<FailureLog[]>("/failure-logs");
+}
+
+export async function exportFailureLogs(options: {
+  startDate?: string;
+  endDate?: string;
+  slaStatus?: "all" | "open" | "at_risk" | "breached" | "met";
+}): Promise<FailureLog[]> {
+  const params = new URLSearchParams({
+    start_date: options.startDate ?? "",
+    end_date: options.endDate ?? "",
+    sla_status: options.slaStatus ?? "all",
+  });
+  return fetchAuthed<FailureLog[]>(`/failure-logs/export?${params.toString()}`);
 }
 
 export async function fetchAlerts(statusFilter: "all" | "open" | "acknowledged" = "all"): Promise<AlertItem[]> {

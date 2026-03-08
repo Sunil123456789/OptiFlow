@@ -106,6 +106,33 @@ export type FailureLogSlaSummary = {
   met: number;
 };
 
+export type MachineDowntimeStat = {
+  machine_id: number;
+  machine_name: string;
+  failure_count: number;
+  downtime_hours: number;
+  repair_cost: number;
+};
+
+export type LineDowntimeStat = {
+  line_name: string;
+  failure_count: number;
+  downtime_hours: number;
+};
+
+export type ReliabilityReport = {
+  start_date: string;
+  end_date: string;
+  period_days: number;
+  failure_count: number;
+  total_downtime_hours: number;
+  total_repair_cost: number;
+  mtbf_hours: number;
+  mttr_hours: number;
+  downtime_by_machine: MachineDowntimeStat[];
+  downtime_by_line: LineDowntimeStat[];
+};
+
 export type AutoGenerateWorkOrdersResult = {
   generated: number;
   skipped_existing: number;

@@ -135,6 +135,33 @@ class FailureLogSlaSummary(BaseModel):
     met: int
 
 
+class MachineDowntimeStat(BaseModel):
+    machine_id: int
+    machine_name: str
+    failure_count: int
+    downtime_hours: float
+    repair_cost: float
+
+
+class LineDowntimeStat(BaseModel):
+    line_name: str
+    failure_count: int
+    downtime_hours: float
+
+
+class ReliabilityReport(BaseModel):
+    start_date: str
+    end_date: str
+    period_days: int
+    failure_count: int
+    total_downtime_hours: float
+    total_repair_cost: float
+    mtbf_hours: float
+    mttr_hours: float
+    downtime_by_machine: list[MachineDowntimeStat]
+    downtime_by_line: list[LineDowntimeStat]
+
+
 class KpiTrendPoint(BaseModel):
     day: str
     failures: int
@@ -793,6 +820,28 @@ def dashboard_kpi_trends(
     ]
 
 
+@app.get("/api/v1/dashboard/kpi-trends/export", response_model=list[KpiTrendPoint])
+def export_dashboard_kpi_trends(
+    current_user: dict[str, object] = Depends(get_current_user),
+    days: int = Query(default=30, ge=7, le=180),
+) -> list[KpiTrendPoint]:
+    return dashboard_kpi_trends(current_user=current_user, days=days)
+
+
+@app.get("/api/v1/reports/reliability", response_model=ReliabilityReport)
+def reliability_report(
+    current_user: dict[str, object] = Depends(get_current_user),
+    start_date: str = Query(default=""),
+    end_date: str = Query(default=""),
+) -> ReliabilityReport:
+    now = datetime.now(timezone.utc)
+    start_at = _parse_date_param(start_date, is_end=False) or (now - timedelta(days=29)).replace(hour=0, minute=0, second=0, microsecond=0)
+    end_at = _parse_date_param(end_date, is_end=True) or now
+    if end_at < start_at:
+        raise HTTPException(status_code=400, detail="end_date must be after start_date")
+    return _build_reliability_report(start_at, end_at)
+
+
 @app.get("/api/v1/audit-logs", response_model=AuditListResponse)
 def list_audit_logs(
     current_user: dict[str, object] = Depends(require_permission("can_manage_users")),
@@ -1142,6 +1191,94 @@ def _compute_failure_log_sla_status(
         return "at_risk"
 
     return "open"
+
+
+def _line_bucket_for_machine(machine: dict[str, object] | None) -> str:
+    if machine is None:
+        return "Unknown"
+    machine_code = str(machine.get("machine_code", ""))
+    parts = machine_code.split("-")
+    if len(parts) >= 2 and parts[1].strip():
+        return parts[1].strip().upper()
+    return "UNASSIGNED"
+
+
+def _build_reliability_report(start_at: datetime, end_at: datetime) -> ReliabilityReport:
+    failures = [
+        item
+        for item in failure_logs_store.list()
+        if start_at <= _safe_parse_datetime(str(item.get("occurred_at", ""))) <= end_at
+    ]
+    failures.sort(key=lambda item: _safe_parse_datetime(str(item.get("occurred_at", ""))))
+
+    total_downtime = round(sum(float(item.get("downtime_hours", 0)) for item in failures), 2)
+    total_repair_cost = round(sum(float(item.get("repair_cost", 0)) for item in failures), 2)
+
+    period_hours = max(1.0, (end_at - start_at).total_seconds() / 3600)
+    failure_count = len(failures)
+    mtbf_hours = round(period_hours / failure_count, 2) if failure_count > 0 else round(period_hours, 2)
+    mttr_hours = round(total_downtime / failure_count, 2) if failure_count > 0 else 0.0
+
+    machine_stats: dict[int, dict[str, object]] = {}
+    line_stats: dict[str, dict[str, object]] = {}
+    for item in failures:
+        machine_id = int(item.get("machine_id", 0))
+        machine = machines_store.get(machine_id)
+        machine_name = str(machine.get("name", "Unknown Machine")) if machine else "Unknown Machine"
+        line_name = _line_bucket_for_machine(machine)
+
+        row = machine_stats.setdefault(
+            machine_id,
+            {
+                "machine_id": machine_id,
+                "machine_name": machine_name,
+                "failure_count": 0,
+                "downtime_hours": 0.0,
+                "repair_cost": 0.0,
+            },
+        )
+        row["failure_count"] = int(row["failure_count"]) + 1
+        row["downtime_hours"] = float(row["downtime_hours"]) + float(item.get("downtime_hours", 0))
+        row["repair_cost"] = float(row["repair_cost"]) + float(item.get("repair_cost", 0))
+
+        line_row = line_stats.setdefault(
+            line_name,
+            {"line_name": line_name, "failure_count": 0, "downtime_hours": 0.0},
+        )
+        line_row["failure_count"] = int(line_row["failure_count"]) + 1
+        line_row["downtime_hours"] = float(line_row["downtime_hours"]) + float(item.get("downtime_hours", 0))
+
+    downtime_by_machine = [
+        MachineDowntimeStat(
+            machine_id=int(row["machine_id"]),
+            machine_name=str(row["machine_name"]),
+            failure_count=int(row["failure_count"]),
+            downtime_hours=round(float(row["downtime_hours"]), 2),
+            repair_cost=round(float(row["repair_cost"]), 2),
+        )
+        for row in sorted(machine_stats.values(), key=lambda item: float(item["downtime_hours"]), reverse=True)
+    ]
+    downtime_by_line = [
+        LineDowntimeStat(
+            line_name=str(row["line_name"]),
+            failure_count=int(row["failure_count"]),
+            downtime_hours=round(float(row["downtime_hours"]), 2),
+        )
+        for row in sorted(line_stats.values(), key=lambda item: float(item["downtime_hours"]), reverse=True)
+    ]
+
+    return ReliabilityReport(
+        start_date=start_at.date().isoformat(),
+        end_date=end_at.date().isoformat(),
+        period_days=max(1, (end_at.date() - start_at.date()).days + 1),
+        failure_count=failure_count,
+        total_downtime_hours=total_downtime,
+        total_repair_cost=total_repair_cost,
+        mtbf_hours=mtbf_hours,
+        mttr_hours=mttr_hours,
+        downtime_by_machine=downtime_by_machine,
+        downtime_by_line=downtime_by_line,
+    )
 
 
 def _safe_parse_datetime(raw: str) -> datetime:
@@ -2088,6 +2225,32 @@ def list_failure_logs(current_user: dict[str, object] = Depends(get_current_user
     rows = failure_logs_store.list()
     rows.sort(key=lambda row: _safe_parse_datetime(str(row.get("occurred_at", ""))), reverse=True)
     return [_failure_log_with_machine_name(row) for row in rows]
+
+
+@app.get("/api/v1/failure-logs/export", response_model=list[FailureLog])
+def export_failure_logs(
+    current_user: dict[str, object] = Depends(get_current_user),
+    start_date: str = Query(default=""),
+    end_date: str = Query(default=""),
+    sla_status: Literal["all", "open", "at_risk", "breached", "met"] = Query(default="all"),
+) -> list[FailureLog]:
+    rows = [_failure_log_with_machine_name(row) for row in failure_logs_store.list()]
+    start_at = _parse_date_param(start_date, is_end=False)
+    end_at = _parse_date_param(end_date, is_end=True)
+
+    filtered = []
+    for row in rows:
+        occurred_at = _safe_parse_datetime(row.occurred_at)
+        if start_at is not None and occurred_at < start_at:
+            continue
+        if end_at is not None and occurred_at > end_at:
+            continue
+        if sla_status != "all" and row.sla_status != sla_status:
+            continue
+        filtered.append(row)
+
+    filtered.sort(key=lambda row: _safe_parse_datetime(row.occurred_at), reverse=True)
+    return filtered
 
 
 @app.get("/api/v1/alerts", response_model=list[AlertItem])

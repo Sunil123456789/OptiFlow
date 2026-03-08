@@ -11,6 +11,7 @@ import { OverviewPage } from "./pages/OverviewPage";
 import { FailureLogsPage } from "./pages/FailureLogsPage";
 import { PlantMapPage } from "./pages/PlantMapPage";
 import { PlansPage } from "./pages/PlansPage";
+import { ReportsPage } from "./pages/ReportsPage";
 import { UsersPage } from "./pages/UsersPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
 
@@ -164,6 +165,9 @@ export function App() {
     }
     if (activeTab === "Failure Logs") {
       return <FailureLogsPage currentUser={currentUser} />;
+    }
+    if (activeTab === "Reports") {
+      return <ReportsPage currentUser={currentUser} />;
     }
     if (activeTab === "Plant Map") {
       return <PlantMapPage currentUser={currentUser} />;

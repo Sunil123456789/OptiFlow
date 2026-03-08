@@ -490,6 +490,33 @@ export function UsersPage({ currentUser }: UsersPageProps) {
           <thead>
             <tr>
               <th>Role</th>
+              <th>Manage Users</th>
+              <th>Manage Assets</th>
+              <th>Create Work Orders</th>
+              <th>Update Work Orders</th>
+              <th>Import Master Data</th>
+            </tr>
+          </thead>
+          <tbody>
+            {roles.map((roleItem) => (
+              <tr key={`matrix-${roleItem.name}`}>
+                <td>{toLabel(roleItem.name)}</td>
+                <td>{roleItem.permissions.can_manage_users ? "Yes" : "No"}</td>
+                <td>{roleItem.permissions.can_manage_assets ? "Yes" : "No"}</td>
+                <td>{roleItem.permissions.can_create_work_orders ? "Yes" : "No"}</td>
+                <td>{roleItem.permissions.can_update_work_orders ? "Yes" : "No"}</td>
+                <td>{roleItem.permissions.can_import_master_data ? "Yes" : "No"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>Role</th>
               <th>System</th>
               <th>Active</th>
               <th>Manage Users</th>
