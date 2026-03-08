@@ -19,6 +19,7 @@ from fastapi.security import OAuth2PasswordBearer
 
 from app.config import settings
 from app.alert_deliveries_store import AlertDeliveriesStore
+from app.alert_delivery_settings_store import AlertDeliverySettingsStore
 from app.alerts_store import AlertsStore
 from app.audit_store import AuditStore
 from app.database import db_healthcheck
@@ -51,6 +52,7 @@ import_history_store = ImportHistoryStore()
 failure_logs_store = FailureLogsStore()
 alerts_store = AlertsStore()
 alert_deliveries_store = AlertDeliveriesStore()
+alert_delivery_settings_store = AlertDeliverySettingsStore()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 logger = logging.getLogger("optiflow.api")
 if not logger.handlers:
@@ -252,6 +254,7 @@ class AlertDeliveryAttempt(BaseModel):
     target: str
     message: str
     response_code: int | None = None
+    next_retry_at: str | None = None
 
 
 class AlertDispatchResult(BaseModel):
@@ -268,6 +271,42 @@ class AlertDispatchSummary(BaseModel):
     failed: int
     skipped: int
     results: list[AlertDispatchResult]
+    note: str | None = None
+
+
+class AlertDispatchTickRequest(BaseModel):
+    force: bool = False
+
+
+class AlertDeliverySettings(BaseModel):
+    email_enabled: bool
+    email_to: str
+    webhook_enabled: bool
+    webhook_url: str
+    webhook_timeout_seconds: int
+    max_retries: int
+    retry_backoff_seconds: int
+    cooldown_seconds: int
+    auto_dispatch_enabled: bool
+
+
+class AlertDeliverySettingsUpdate(BaseModel):
+    email_enabled: bool | None = None
+    email_to: str | None = Field(default=None, max_length=300)
+    webhook_enabled: bool | None = None
+    webhook_url: str | None = Field(default=None, max_length=500)
+    webhook_timeout_seconds: int | None = Field(default=None, ge=1, le=60)
+    max_retries: int | None = Field(default=None, ge=1, le=10)
+    retry_backoff_seconds: int | None = Field(default=None, ge=10, le=3600)
+    cooldown_seconds: int | None = Field(default=None, ge=0, le=86400)
+    auto_dispatch_enabled: bool | None = None
+
+
+class AlertDeliveryStats(BaseModel):
+    sent: int
+    failed: int
+    skipped: int
+    window_hours: int
 
 
 class AutoGenerateWorkOrdersResult(BaseModel):
@@ -1566,11 +1605,26 @@ def _decorate_alerts_with_state(alerts: list[dict[str, object]]) -> list[AlertIt
     return result
 
 
-def _enabled_alert_channels() -> list[Literal["email", "webhook"]]:
+def _get_alert_delivery_settings() -> AlertDeliverySettings:
+    persisted = alert_delivery_settings_store.get()
+    return AlertDeliverySettings(
+        email_enabled=bool(persisted.get("email_enabled", settings.alert_delivery_email_enabled)),
+        email_to=str(persisted.get("email_to", settings.alert_delivery_email_to)).strip(),
+        webhook_enabled=bool(persisted.get("webhook_enabled", settings.alert_delivery_webhook_enabled)),
+        webhook_url=str(persisted.get("webhook_url", settings.alert_delivery_webhook_url)).strip(),
+        webhook_timeout_seconds=max(1, int(persisted.get("webhook_timeout_seconds", settings.alert_delivery_webhook_timeout_seconds))),
+        max_retries=max(1, int(persisted.get("max_retries", settings.alert_delivery_max_retries))),
+        retry_backoff_seconds=max(10, int(persisted.get("retry_backoff_seconds", settings.alert_delivery_retry_backoff_seconds))),
+        cooldown_seconds=max(0, int(persisted.get("cooldown_seconds", settings.alert_delivery_cooldown_seconds))),
+        auto_dispatch_enabled=bool(persisted.get("auto_dispatch_enabled", settings.alert_delivery_auto_dispatch_enabled)),
+    )
+
+
+def _enabled_alert_channels(delivery_settings: AlertDeliverySettings) -> list[Literal["email", "webhook"]]:
     channels: list[Literal["email", "webhook"]] = []
-    if settings.alert_delivery_email_enabled:
+    if delivery_settings.email_enabled:
         channels.append("email")
-    if settings.alert_delivery_webhook_enabled:
+    if delivery_settings.webhook_enabled:
         channels.append("webhook")
     return channels
 
@@ -1583,6 +1637,7 @@ def _record_delivery_attempt(
     target: str,
     message: str,
     response_code: int | None = None,
+    next_retry_at: str | None = None,
 ) -> AlertDeliveryAttempt:
     created = alert_deliveries_store.create(
         {
@@ -1593,59 +1648,28 @@ def _record_delivery_attempt(
             "target": target,
             "message": message,
             "response_code": response_code,
+            "next_retry_at": next_retry_at,
         }
     )
     return AlertDeliveryAttempt(**created)
 
 
-def _send_email_alert(alert: AlertItem, attempt_no: int) -> AlertDispatchResult:
-    recipient = settings.alert_delivery_email_to.strip()
+def _send_email_alert(alert: AlertItem, delivery_settings: AlertDeliverySettings) -> tuple[Literal["sent", "failed"], str, int | None]:
+    recipient = delivery_settings.email_to.strip()
     if not recipient:
-        _record_delivery_attempt(
-            alert.id,
-            "email",
-            "failed",
-            attempt_no,
-            "",
-            "Email recipient is not configured",
-        )
-        return AlertDispatchResult(
-            alert_id=alert.id,
-            channel="email",
-            status="failed",
-            attempt_no=attempt_no,
-            message="Email recipient is not configured",
-        )
+        return "failed", "Email recipient is not configured", None
 
     detail = f"Simulated email queued for {recipient}"
-    _record_delivery_attempt(alert.id, "email", "sent", attempt_no, recipient, detail)
-    return AlertDispatchResult(
-        alert_id=alert.id,
-        channel="email",
-        status="sent",
-        attempt_no=attempt_no,
-        message=detail,
-    )
+    return "sent", detail, 202
 
 
-def _send_webhook_alert(alert: AlertItem, attempt_no: int) -> AlertDispatchResult:
-    webhook_url = settings.alert_delivery_webhook_url.strip()
+def _send_webhook_alert(
+    alert: AlertItem,
+    delivery_settings: AlertDeliverySettings,
+) -> tuple[Literal["sent", "failed"], str, int | None]:
+    webhook_url = delivery_settings.webhook_url.strip()
     if not webhook_url:
-        _record_delivery_attempt(
-            alert.id,
-            "webhook",
-            "failed",
-            attempt_no,
-            "",
-            "Webhook URL is not configured",
-        )
-        return AlertDispatchResult(
-            alert_id=alert.id,
-            channel="webhook",
-            status="failed",
-            attempt_no=attempt_no,
-            message="Webhook URL is not configured",
-        )
+        return "failed", "Webhook URL is not configured", None
 
     body = {
         "alert_id": alert.id,
@@ -1668,76 +1692,134 @@ def _send_webhook_alert(alert: AlertItem, attempt_no: int) -> AlertDispatchResul
     )
 
     try:
-        with urllib_request.urlopen(req, timeout=settings.alert_delivery_webhook_timeout_seconds) as response:
+        with urllib_request.urlopen(req, timeout=delivery_settings.webhook_timeout_seconds) as response:
             status_code = int(response.getcode())
             if 200 <= status_code < 300:
                 detail = f"Webhook delivered with HTTP {status_code}"
-                _record_delivery_attempt(alert.id, "webhook", "sent", attempt_no, webhook_url, detail, status_code)
-                return AlertDispatchResult(
-                    alert_id=alert.id,
-                    channel="webhook",
-                    status="sent",
-                    attempt_no=attempt_no,
-                    message=detail,
-                )
+                return "sent", detail, status_code
 
             detail = f"Webhook returned HTTP {status_code}"
-            _record_delivery_attempt(alert.id, "webhook", "failed", attempt_no, webhook_url, detail, status_code)
-            return AlertDispatchResult(
-                alert_id=alert.id,
-                channel="webhook",
-                status="failed",
-                attempt_no=attempt_no,
-                message=detail,
-            )
+            return "failed", detail, status_code
     except (urllib_error.URLError, urllib_error.HTTPError, TimeoutError) as exc:
         detail = f"Webhook error: {exc}"
-        _record_delivery_attempt(alert.id, "webhook", "failed", attempt_no, webhook_url, detail)
+        return "failed", detail, None
+
+
+def _is_retry_waiting(last_attempt: dict[str, object]) -> tuple[bool, str | None]:
+    retry_at_raw = str(last_attempt.get("next_retry_at", "")).strip()
+    if not retry_at_raw:
+        return False, None
+    try:
+        retry_at = _safe_parse_datetime(retry_at_raw)
+    except ValueError:
+        return False, None
+    if retry_at > datetime.now(timezone.utc):
+        return True, retry_at.isoformat()
+    return False, None
+
+
+def _is_cooldown_active(last_attempt: dict[str, object], cooldown_seconds: int) -> tuple[bool, str | None]:
+    if cooldown_seconds <= 0:
+        return False, None
+    attempted_at = str(last_attempt.get("attempted_at", "")).strip()
+    if not attempted_at:
+        return False, None
+    cooldown_until = _safe_parse_datetime(attempted_at) + timedelta(seconds=cooldown_seconds)
+    if cooldown_until > datetime.now(timezone.utc):
+        return True, cooldown_until.isoformat()
+    return False, None
+
+
+def _dispatch_channel(
+    alert: AlertItem,
+    channel: Literal["email", "webhook"],
+    delivery_settings: AlertDeliverySettings,
+) -> AlertDispatchResult:
+    if alert_deliveries_store.has_success(alert.id, channel):
+        attempt_no = alert_deliveries_store.count_attempts(alert.id, channel) + 1
+        _record_delivery_attempt(
+            alert.id,
+            channel,
+            "skipped",
+            attempt_no,
+            "configured",
+            "Already delivered successfully for this alert",
+        )
         return AlertDispatchResult(
             alert_id=alert.id,
-            channel="webhook",
-            status="failed",
+            channel=channel,
+            status="skipped",
             attempt_no=attempt_no,
-            message=detail,
+            message="Already delivered successfully for this alert",
         )
 
+    last_attempt = alert_deliveries_store.latest_attempt(alert.id, channel)
+    if last_attempt:
+        waiting, retry_at = _is_retry_waiting(last_attempt)
+        if waiting:
+            attempt_no = alert_deliveries_store.count_attempts(alert.id, channel) + 1
+            message = f"Retry scheduled at {retry_at}"
+            _record_delivery_attempt(alert.id, channel, "skipped", attempt_no, "configured", message, next_retry_at=retry_at)
+            return AlertDispatchResult(alert_id=alert.id, channel=channel, status="skipped", attempt_no=attempt_no, message=message)
 
-def _dispatch_alert_to_channels(alert: AlertItem) -> list[AlertDispatchResult]:
-    channels = _enabled_alert_channels()
+        cooling_down, cooldown_until = _is_cooldown_active(last_attempt, delivery_settings.cooldown_seconds)
+        if cooling_down:
+            attempt_no = alert_deliveries_store.count_attempts(alert.id, channel) + 1
+            message = f"Cooldown active until {cooldown_until}"
+            _record_delivery_attempt(alert.id, channel, "skipped", attempt_no, "configured", message)
+            return AlertDispatchResult(alert_id=alert.id, channel=channel, status="skipped", attempt_no=attempt_no, message=message)
+
+    attempt_no = alert_deliveries_store.count_attempts(alert.id, channel) + 1
+    if attempt_no > delivery_settings.max_retries:
+        message = "Retry budget exhausted"
+        _record_delivery_attempt(alert.id, channel, "skipped", attempt_no, "configured", message)
+        return AlertDispatchResult(
+            alert_id=alert.id,
+            channel=channel,
+            status="skipped",
+            attempt_no=attempt_no,
+            message=message,
+        )
+
+    target = delivery_settings.email_to if channel == "email" else delivery_settings.webhook_url
+    if channel == "email":
+        status, message, response_code = _send_email_alert(alert, delivery_settings)
+    else:
+        status, message, response_code = _send_webhook_alert(alert, delivery_settings)
+
+    next_retry_at: str | None = None
+    if status == "failed":
+        delay = min(delivery_settings.retry_backoff_seconds * (2 ** max(0, attempt_no - 1)), 6 * 3600)
+        next_retry_at = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
+        message = f"{message}; next retry at {next_retry_at}"
+
+    _record_delivery_attempt(
+        alert.id,
+        channel,
+        status,
+        attempt_no,
+        str(target).strip(),
+        message,
+        response_code=response_code,
+        next_retry_at=next_retry_at,
+    )
+    return AlertDispatchResult(
+        alert_id=alert.id,
+        channel=channel,
+        status=status,
+        attempt_no=attempt_no,
+        message=message,
+    )
+
+
+def _dispatch_alert_to_channels(alert: AlertItem, delivery_settings: AlertDeliverySettings) -> list[AlertDispatchResult]:
+    channels = _enabled_alert_channels(delivery_settings)
     if not channels:
         return []
-
-    max_retries = max(1, settings.alert_delivery_max_retries)
     results: list[AlertDispatchResult] = []
 
     for channel in channels:
-        if alert_deliveries_store.has_success(alert.id, channel):
-            attempt_no = alert_deliveries_store.count_attempts(alert.id, channel) + 1
-            _record_delivery_attempt(
-                alert.id,
-                channel,
-                "skipped",
-                attempt_no,
-                "configured",
-                "Already delivered successfully for this alert",
-            )
-            results.append(
-                AlertDispatchResult(
-                    alert_id=alert.id,
-                    channel=channel,
-                    status="skipped",
-                    attempt_no=attempt_no,
-                    message="Already delivered successfully for this alert",
-                )
-            )
-            continue
-
-        for _ in range(max_retries):
-            attempt_no = alert_deliveries_store.count_attempts(alert.id, channel) + 1
-            result = _send_email_alert(alert, attempt_no) if channel == "email" else _send_webhook_alert(alert, attempt_no)
-            results.append(result)
-            if result.status == "sent":
-                break
+        results.append(_dispatch_channel(alert, channel, delivery_settings))
 
     return results
 
@@ -2804,11 +2886,64 @@ def list_alert_delivery_attempts(
     current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
     alert_id: str = Query(default=""),
     channel: Literal["all", "email", "webhook"] = Query(default="all"),
+    status_filter: Literal["all", "sent", "failed", "skipped"] = Query(default="all"),
+    since_hours: int = Query(default=0, ge=0, le=24 * 30),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[AlertDeliveryAttempt]:
     selected_channel = "" if channel == "all" else channel
-    rows = alert_deliveries_store.list(alert_id=alert_id.strip() or None, channel=selected_channel or None, limit=limit)
+    selected_status = "" if status_filter == "all" else status_filter
+    since_at = None
+    if since_hours > 0:
+        since_at = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
+    rows = alert_deliveries_store.list(
+        alert_id=alert_id.strip() or None,
+        channel=selected_channel or None,
+        status=selected_status or None,
+        since_at=since_at,
+        limit=limit,
+    )
     return [AlertDeliveryAttempt(**row) for row in rows]
+
+
+@app.get("/api/v1/alerts/delivery-stats", response_model=AlertDeliveryStats)
+def get_alert_delivery_stats(
+    current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
+    since_hours: int = Query(default=24, ge=1, le=24 * 30),
+) -> AlertDeliveryStats:
+    since_at = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
+    rows = alert_deliveries_store.list(since_at=since_at)
+    sent = len([row for row in rows if str(row.get("status", "")) == "sent"])
+    failed = len([row for row in rows if str(row.get("status", "")) == "failed"])
+    skipped = len([row for row in rows if str(row.get("status", "")) == "skipped"])
+    return AlertDeliveryStats(sent=sent, failed=failed, skipped=skipped, window_hours=since_hours)
+
+
+@app.get("/api/v1/alerts/delivery-settings", response_model=AlertDeliverySettings)
+def get_alert_delivery_settings(
+    current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
+) -> AlertDeliverySettings:
+    return _get_alert_delivery_settings()
+
+
+@app.patch("/api/v1/alerts/delivery-settings", response_model=AlertDeliverySettings)
+def update_alert_delivery_settings(
+    payload: AlertDeliverySettingsUpdate,
+    current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
+) -> AlertDeliverySettings:
+    updates = payload.model_dump(exclude_unset=True)
+    if "email_to" in updates:
+        updates["email_to"] = str(updates["email_to"] or "").strip()
+        if updates["email_to"] and "@" not in updates["email_to"]:
+            raise HTTPException(status_code=400, detail="email_to must be a valid email address")
+    if "webhook_url" in updates:
+        updates["webhook_url"] = str(updates["webhook_url"] or "").strip()
+        if updates["webhook_url"] and not str(updates["webhook_url"]).startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="webhook_url must start with http:// or https://")
+
+    alert_delivery_settings_store.update(updates)
+    current = _get_alert_delivery_settings()
+    write_audit_event(current_user, "alert", "delivery-settings", "update", "Updated alert delivery settings")
+    return current
 
 
 @app.post("/api/v1/alerts/dispatch-open", response_model=AlertDispatchSummary)
@@ -2817,10 +2952,11 @@ def dispatch_open_alerts(
 ) -> AlertDispatchSummary:
     candidates = _decorate_alerts_with_state(_build_alert_candidates())
     open_alerts = [item for item in candidates if item.status == "open"]
+    delivery_settings = _get_alert_delivery_settings()
     dispatched: list[AlertDispatchResult] = []
 
     for alert in open_alerts:
-        dispatched.extend(_dispatch_alert_to_channels(alert))
+        dispatched.extend(_dispatch_alert_to_channels(alert, delivery_settings))
 
     sent = len([item for item in dispatched if item.status == "sent"])
     failed = len([item for item in dispatched if item.status == "failed"])
@@ -2838,6 +2974,41 @@ def dispatch_open_alerts(
         failed=failed,
         skipped=skipped,
         results=dispatched,
+    )
+
+
+@app.post("/api/v1/alerts/dispatch-tick", response_model=AlertDispatchSummary)
+def dispatch_alerts_tick(
+    payload: AlertDispatchTickRequest,
+    current_user: dict[str, object] = Depends(require_permission("can_manage_assets")),
+) -> AlertDispatchSummary:
+    delivery_settings = _get_alert_delivery_settings()
+    if not payload.force and not delivery_settings.auto_dispatch_enabled:
+        return AlertDispatchSummary(requested=0, sent=0, failed=0, skipped=0, results=[], note="Auto dispatch is disabled")
+
+    candidates = _decorate_alerts_with_state(_build_alert_candidates())
+    open_alerts = [item for item in candidates if item.status == "open"]
+    dispatched: list[AlertDispatchResult] = []
+    for alert in open_alerts:
+        dispatched.extend(_dispatch_alert_to_channels(alert, delivery_settings))
+
+    sent = len([item for item in dispatched if item.status == "sent"])
+    failed = len([item for item in dispatched if item.status == "failed"])
+    skipped = len([item for item in dispatched if item.status == "skipped"])
+    write_audit_event(
+        current_user,
+        "alert",
+        "dispatch-tick",
+        "update",
+        f"Dispatch tick processed={len(open_alerts)} sent={sent} failed={failed} skipped={skipped}",
+    )
+    return AlertDispatchSummary(
+        requested=len(open_alerts),
+        sent=sent,
+        failed=failed,
+        skipped=skipped,
+        results=dispatched,
+        note="Tick completed",
     )
 
 

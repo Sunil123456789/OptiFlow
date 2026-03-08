@@ -53,6 +53,8 @@ if ($authHeaders.Count -gt 0) {
     if (-not (Test-Endpoint -Name "Spare Parts" -Url "$ApiBaseUrl/api/v1/spare-parts?page=1&page_size=5" -Headers $authHeaders)) { $allPass = $false }
     if (-not (Test-Endpoint -Name "Alerts" -Url "$ApiBaseUrl/api/v1/alerts?status_filter=open" -Headers $authHeaders)) { $allPass = $false }
     if (-not (Test-Endpoint -Name "Alert Delivery Attempts" -Url "$ApiBaseUrl/api/v1/alerts/delivery-attempts?channel=all&limit=5" -Headers $authHeaders)) { $allPass = $false }
+    if (-not (Test-Endpoint -Name "Alert Delivery Stats" -Url "$ApiBaseUrl/api/v1/alerts/delivery-stats?since_hours=24" -Headers $authHeaders)) { $allPass = $false }
+    if (-not (Test-Endpoint -Name "Alert Delivery Settings" -Url "$ApiBaseUrl/api/v1/alerts/delivery-settings" -Headers $authHeaders)) { $allPass = $false }
 
     try {
         $partsRes = Invoke-RestMethod -Method Get -Uri "$ApiBaseUrl/api/v1/spare-parts?page=1&page_size=1" -Headers $authHeaders -TimeoutSec 15
@@ -113,6 +115,17 @@ if ($authHeaders.Count -gt 0) {
         Write-Host "[PASS] Alert Dispatch Open -> requested=$($dispatchSummary.requested) sent=$($dispatchSummary.sent) failed=$($dispatchSummary.failed) skipped=$($dispatchSummary.skipped)"
     } catch {
         Write-Host "[FAIL] Phase-6 Alert Dispatch -> $($_.Exception.Message)"
+        $allPass = $false
+    }
+
+    try {
+        $tickSummary = Invoke-RestMethod -Method Post -Uri "$ApiBaseUrl/api/v1/alerts/dispatch-tick" -Headers $authHeaders -ContentType "application/json" -Body '{"force":false}' -TimeoutSec 20
+        if ($null -eq $tickSummary) {
+            throw "Dispatch tick endpoint returned no response body"
+        }
+        Write-Host "[PASS] Alert Dispatch Tick -> requested=$($tickSummary.requested) sent=$($tickSummary.sent) failed=$($tickSummary.failed) skipped=$($tickSummary.skipped)"
+    } catch {
+        Write-Host "[FAIL] Phase-6 Alert Dispatch Tick -> $($_.Exception.Message)"
         $allPass = $false
     }
 }

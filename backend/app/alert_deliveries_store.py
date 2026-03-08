@@ -25,17 +25,41 @@ class AlertDeliveriesStore:
         with self._file_path.open("w", encoding="utf-8") as file:
             json.dump(data, file, indent=2)
 
-    def list(self, alert_id: str | None = None, channel: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+    def list(
+        self,
+        alert_id: str | None = None,
+        channel: str | None = None,
+        status: str | None = None,
+        since_at: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._read()
             if alert_id:
                 rows = [row for row in rows if str(row.get("alert_id", "")) == alert_id]
             if channel:
                 rows = [row for row in rows if str(row.get("channel", "")) == channel]
+            if status:
+                rows = [row for row in rows if str(row.get("status", "")) == status]
+            if since_at:
+                rows = [row for row in rows if str(row.get("attempted_at", "")) >= since_at]
             rows.sort(key=lambda row: str(row.get("attempted_at", "")), reverse=True)
             if limit is not None and limit > 0:
                 return rows[:limit]
             return rows
+
+    def latest_attempt(self, alert_id: str, channel: str) -> dict[str, Any] | None:
+        with self._lock:
+            rows = self._read()
+            filtered = [
+                row
+                for row in rows
+                if str(row.get("alert_id", "")) == alert_id and str(row.get("channel", "")) == channel
+            ]
+            if not filtered:
+                return None
+            filtered.sort(key=lambda row: str(row.get("attempted_at", "")), reverse=True)
+            return filtered[0]
 
     def count_attempts(self, alert_id: str, channel: str) -> int:
         with self._lock:

@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     alert_delivery_webhook_url: str = ""
     alert_delivery_webhook_timeout_seconds: int = 5
     alert_delivery_max_retries: int = 2
+    alert_delivery_retry_backoff_seconds: int = 60
+    alert_delivery_cooldown_seconds: int = 300
+    alert_delivery_auto_dispatch_enabled: bool = False
 
 
 settings = Settings()
