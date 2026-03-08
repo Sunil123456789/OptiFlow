@@ -55,6 +55,26 @@ After restore:
 2. Run `scripts/verify-e2e.ps1`.
 3. Verify recent audit/import history data appears.
 
+## Release Rollback Checkpoints
+Use these checkpoints for quick code-level rollback after a failed release.
+
+- Phase-3 release tag: `v1.1-phase3`
+- Pre-merge local checkpoint branch: `backup/local-main-cf83c14`
+
+Rollback to release tag:
+
+```powershell
+git checkout v1.1-phase3
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Rollback to local checkpoint branch:
+
+```powershell
+git checkout backup/local-main-cf83c14
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
 ## Incident Response (Quick)
 1. Stop new imports immediately.
 2. Export audit logs for incident window.
