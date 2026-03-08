@@ -1,5 +1,7 @@
 ﻿import type {
   AlertDeliveryAttempt,
+  AlertDeliverySettings,
+  AlertDeliveryStats,
   AlertDispatchSummary,
   AlertItem,
   AutoGenerateWorkOrdersResult,
@@ -618,17 +620,41 @@ export async function dispatchOpenAlerts(): Promise<AlertDispatchSummary> {
   return postAuthed<AlertDispatchSummary, Record<string, never>>("/alerts/dispatch-open", {});
 }
 
+export async function dispatchAlertsTick(payload?: { force?: boolean }): Promise<AlertDispatchSummary> {
+  return postAuthed<AlertDispatchSummary, { force: boolean }>("/alerts/dispatch-tick", {
+    force: Boolean(payload?.force),
+  });
+}
+
 export async function fetchAlertDeliveryAttempts(options?: {
   alertId?: string;
   channel?: "all" | "email" | "webhook";
+  statusFilter?: "all" | "sent" | "failed" | "skipped";
+  sinceHours?: number;
   limit?: number;
 }): Promise<AlertDeliveryAttempt[]> {
   const params = new URLSearchParams({
     alert_id: options?.alertId ?? "",
     channel: options?.channel ?? "all",
+    status_filter: options?.statusFilter ?? "all",
+    since_hours: String(options?.sinceHours ?? 0),
     limit: String(options?.limit ?? 30),
   });
   return fetchAuthed<AlertDeliveryAttempt[]>(`/alerts/delivery-attempts?${params.toString()}`);
+}
+
+export async function fetchAlertDeliveryStats(sinceHours = 24): Promise<AlertDeliveryStats> {
+  return fetchAuthed<AlertDeliveryStats>(`/alerts/delivery-stats?since_hours=${sinceHours}`);
+}
+
+export async function fetchAlertDeliverySettings(): Promise<AlertDeliverySettings> {
+  return fetchAuthed<AlertDeliverySettings>("/alerts/delivery-settings");
+}
+
+export async function updateAlertDeliverySettings(
+  payload: Partial<AlertDeliverySettings>
+): Promise<AlertDeliverySettings> {
+  return patchAuthed<AlertDeliverySettings, Partial<AlertDeliverySettings>>("/alerts/delivery-settings", payload);
 }
 
 export async function createFailureLog(payload: {

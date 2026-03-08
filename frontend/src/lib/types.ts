@@ -40,6 +40,7 @@ export type AlertDeliveryAttempt = {
   target: string;
   message: string;
   response_code?: number | null;
+  next_retry_at?: string | null;
 };
 
 export type AlertDispatchResult = {
@@ -56,6 +57,26 @@ export type AlertDispatchSummary = {
   failed: number;
   skipped: number;
   results: AlertDispatchResult[];
+  note?: string | null;
+};
+
+export type AlertDeliverySettings = {
+  email_enabled: boolean;
+  email_to: string;
+  webhook_enabled: boolean;
+  webhook_url: string;
+  webhook_timeout_seconds: number;
+  max_retries: number;
+  retry_backoff_seconds: number;
+  cooldown_seconds: number;
+  auto_dispatch_enabled: boolean;
+};
+
+export type AlertDeliveryStats = {
+  sent: number;
+  failed: number;
+  skipped: number;
+  window_hours: number;
 };
 
 export type RolePermissions = {
