@@ -706,9 +706,10 @@ def _failure_log_with_machine_name(failure_log: dict[str, object]) -> FailureLog
         resolution_target_hours=resolution_target,
     )
 
+    normalized_failure_log = {**failure_log, "severity": severity}
+
     return FailureLog(
-        **failure_log,
-        severity=severity,
+        **normalized_failure_log,
         machine_name=machine_name,
         response_started_at=str(failure_log.get("response_started_at")) if failure_log.get("response_started_at") else None,
         resolved_at=str(failure_log.get("resolved_at")) if failure_log.get("resolved_at") else None,

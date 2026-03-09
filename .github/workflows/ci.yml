@@ -60,6 +60,14 @@ jobs:
         working-directory: backend
         run: pip install -r requirements.txt
 
+      - name: Install backend test dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+
+      - name: Run backend unit tests
+        working-directory: backend
+        run: pytest -q tests
+
       - name: Prepare backend env for CI
         run: |
           cat > backend/.env <<'EOF'
